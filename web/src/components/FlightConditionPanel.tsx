@@ -4,7 +4,6 @@ import { engine, useEngineEvent, type SliderValues } from "@/lib/engine";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Separator } from "@/components/ui/separator";
 
 // Slider updates fire continuously while dragging; throttling keeps that
 // from flooding the WS with more SliderUpdate frames than the panel-method
@@ -14,20 +13,14 @@ const THROTTLE_MS = 33;
 
 const DEFAULT_VALUES: SliderValues = { alphaDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 } };
 
-interface Readout {
-  cl: number;
-  cdInduced: number;
-  cm: number;
-}
-
+/** CL/CDi/Cm live in `OutputBar`, pinned under the viewport -- not here, so
+ * this panel is purely inputs and can collapse away without hiding the one
+ * readout every user actually needs visible at all times. */
 export function FlightConditionPanel({ chordEstimateM }: { chordEstimateM: number | null }) {
   const [values, setValues] = useState<SliderValues>(DEFAULT_VALUES);
-  const [readout, setReadout] = useState<Readout | null>(null);
   const lastSentRef = useRef(0);
 
-  useEngineEvent("panelResult", (result) => setReadout({ cl: result.cl, cdInduced: result.cdInduced, cm: result.cm }));
   useEngineEvent("meshCleared", () => {
-    setReadout(null);
     setValues(DEFAULT_VALUES);
   });
 
@@ -121,25 +114,8 @@ export function FlightConditionPanel({ chordEstimateM }: { chordEstimateM: numbe
           onValueChange={(v) => update({ cg: { z: v } }, false)}
           onValueCommit={(v) => update({ cg: { z: v } }, true)}
         />
-
-        <Separator />
-
-        <div className="font-data flex items-center justify-between text-sm">
-          <ReadoutStat label="CL" value={readout?.cl} decimals={3} />
-          <ReadoutStat label="CDi" value={readout?.cdInduced} decimals={4} />
-          <ReadoutStat label="Cm" value={readout?.cm} decimals={3} />
-        </div>
       </CardContent>
     </Card>
-  );
-}
-
-function ReadoutStat({ label, value, decimals }: { label: string; value: number | undefined; decimals: number }) {
-  return (
-    <div className="flex flex-col items-center gap-0.5">
-      <span className="text-muted-foreground text-[10px] tracking-wide uppercase">{label}</span>
-      <span>{value === undefined ? "—" : value.toFixed(decimals)}</span>
-    </div>
   );
 }
 

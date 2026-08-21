@@ -1,62 +1,86 @@
 import { useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 
 import type { ImportSummary } from "@/lib/engine";
 import { Viewport } from "@/components/Viewport";
 import { ToolNav } from "@/components/ToolNav";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { ViewportToolbar } from "@/components/ViewportToolbar";
+import { OutputBar } from "@/components/OutputBar";
 import { ImportPanel } from "@/components/ImportPanel";
 import { FlightConditionPanel } from "@/components/FlightConditionPanel";
 import { StabilityPanel } from "@/components/StabilityPanel";
+import { SweepAnimationPanel } from "@/components/SweepAnimationPanel";
 import { VisualizationPanel } from "@/components/VisualizationPanel";
 import { SolvePanel } from "@/components/SolvePanel";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
-/** Groups a cluster of related panels under a small uppercase label, so the
- * two side columns read as named sections (Model / Aerodynamics / Flow
- * Field) instead of an undifferentiated stack of cards. */
+/** Groups a cluster of related panels under a small uppercase label that
+ * doubles as a collapse toggle -- "make things collapsed by choice" means
+ * each group (Model / Aerodynamics / Flow Field) can be closed independently
+ * to keep the sidebar as short as the user wants, rather than always
+ * showing every panel's full contents. Defaults open. */
 function Section({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(true);
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 px-1">
-        <span className="bg-primary/70 h-px w-3" />
-        <span className="font-data text-muted-foreground text-[11px] font-medium tracking-[0.15em] uppercase">
+    <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col gap-3">
+      <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex w-full items-center gap-2 px-1 transition-colors">
+        <span className="bg-primary/70 h-px w-3 shrink-0" />
+        <span className="font-data flex-1 text-left text-[11px] font-medium tracking-[0.15em] uppercase">
           {label}
         </span>
-      </div>
-      <div className="flex flex-col gap-3">{children}</div>
-    </div>
+        <ChevronDown className={`size-3.5 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="flex flex-col gap-3">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
   );
+}
+
+function Sidebar({ children }: { children: ReactNode }) {
+  return <aside className="flex w-72 shrink-0 flex-col gap-6 overflow-y-auto">{children}</aside>;
 }
 
 export function ToolPage() {
   const [chordEstimateM, setChordEstimateM] = useState<number | null>(null);
 
   return (
-    <>
-      <Viewport />
+    <div className="fixed inset-0 flex flex-col">
       <ToolNav />
       <UpdateBanner />
 
-      {/* One scrolling column per side, not several independently-floating
-       * boxes: panel content height varies a lot with what's loaded, and
-       * separate top-anchored boxes could grow tall enough to collide.
-       * Anchoring top AND bottom and scrolling internally makes that
-       * collision structurally impossible instead of just unlikely. */}
-      <div className="fixed top-16 right-3 bottom-3 z-10 flex w-72 flex-col gap-6 overflow-y-auto">
-        <Section label="Model">
-          <ImportPanel onMeshSummaryChange={(summary: ImportSummary | null) => setChordEstimateM(summary?.chord_estimate_m ?? null)} />
-        </Section>
-        <Section label="Aerodynamics">
-          <FlightConditionPanel chordEstimateM={chordEstimateM} />
-          <StabilityPanel />
-        </Section>
-      </div>
+      <div className="flex flex-1 gap-4 overflow-hidden px-4 pb-4 pt-[4.5rem]">
+        <Sidebar>
+          <Section label="Flow Field">
+            <SolvePanel />
+            <VisualizationPanel />
+          </Section>
+        </Sidebar>
 
-      <div className="fixed top-16 bottom-3 left-3 z-10 flex w-64 flex-col gap-6 overflow-y-auto">
-        <Section label="Flow Field">
-          <SolvePanel />
-          <VisualizationPanel />
-        </Section>
+        <div className="relative flex min-w-0 flex-1 flex-col gap-4">
+          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[32px] border">
+            <Viewport />
+            <ViewportToolbar />
+          </div>
+          <OutputBar />
+        </div>
+
+        <Sidebar>
+          <Section label="Model">
+            <ImportPanel
+              onMeshSummaryChange={(summary: ImportSummary | null) => setChordEstimateM(summary?.chord_estimate_m ?? null)}
+            />
+          </Section>
+          <Section label="Aerodynamics">
+            <FlightConditionPanel chordEstimateM={chordEstimateM} />
+            <StabilityPanel />
+          </Section>
+          <Section label="Animation">
+            <SweepAnimationPanel />
+          </Section>
+        </Sidebar>
       </div>
-    </>
+    </div>
   );
 }

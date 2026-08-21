@@ -14,5 +14,5 @@ export function Viewport() {
     if (containerRef.current) engine.mount(containerRef.current);
   }, []);
 
-  return <div ref={containerRef} className="fixed inset-0" />;
+  return <div ref={containerRef} className="absolute inset-0" />;
 }
