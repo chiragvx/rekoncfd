@@ -88,12 +88,23 @@ export function decodePanelResult(frame: DecodedFrame): DecodedPanelResult {
   };
 }
 
-export function encodeSliderUpdate(alphaDeg: number, vInf: number, cg: { x: number; y: number; z: number }): ArrayBuffer {
-  return encodeF32Frame(Tag.SliderUpdate, new Float32Array([alphaDeg, vInf, cg.x, cg.y, cg.z]));
+/** `bankDeg` is a REAL geometric bank angle (the model is rotated within a
+ * fixed-direction wind tunnel), not a cheap freestream-only parameter like
+ * `alphaDeg`/`vInf` -- see `rekon-app`'s `panel::solve_panel_at_bank` doc
+ * comment. The server only pays for a full panel-model rebuild when this
+ * value actually CHANGES between messages, so it's safe to always send the
+ * current bank angle here even while the user is only dragging alpha/V/CG. */
+export function encodeSliderUpdate(
+  alphaDeg: number,
+  vInf: number,
+  cg: { x: number; y: number; z: number },
+  bankDeg: number,
+): ArrayBuffer {
+  return encodeF32Frame(Tag.SliderUpdate, new Float32Array([alphaDeg, vInf, cg.x, cg.y, cg.z, bankDeg]));
 }
 
-export function encodeSolveFlowFieldRequest(alphaDeg: number, vInf: number): ArrayBuffer {
-  return encodeF32Frame(Tag.SolveFlowFieldRequest, new Float32Array([alphaDeg, vInf]));
+export function encodeSolveFlowFieldRequest(alphaDeg: number, vInf: number, bankDeg: number): ArrayBuffer {
+  return encodeF32Frame(Tag.SolveFlowFieldRequest, new Float32Array([alphaDeg, vInf, bankDeg]));
 }
 
 /** Requests a trim search (Cm(alpha)=0) about the current slider CG/V.

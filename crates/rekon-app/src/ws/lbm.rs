@@ -43,13 +43,21 @@ const MAX_TAU: f32 = 1.4;
 pub struct SolveRequest {
     pub alpha_deg: f64,
     pub v_inf: f64,
+    /// Real geometric bank angle (see `panel::solve_panel_at_bank`'s doc
+    /// comment) -- defaults to 0 for older clients that only ever send
+    /// `[alpha_deg, v_inf]`, so this stays backward-compatible.
+    pub bank_deg: f32,
 }
 
 pub fn decode_solve_request(payload: &[f32]) -> Option<SolveRequest> {
     if payload.len() < 2 {
         return None;
     }
-    Some(SolveRequest { alpha_deg: payload[0] as f64, v_inf: payload[1] as f64 })
+    Some(SolveRequest {
+        alpha_deg: payload[0] as f64,
+        v_inf: payload[1] as f64,
+        bank_deg: payload.get(2).copied().unwrap_or(0.0),
+    })
 }
 
 /// Maps the user's real AoA/airspeed and the mesh's chord estimate to a
@@ -145,9 +153,25 @@ pub fn run_solve(
     current_generation: Arc<AtomicU64>,
     tx: Sender<Vec<u8>>,
 ) {
-    let mesh = &record.mesh;
     let chord_m = record.chord_estimate_m;
-    let domain = pipeline::default_wind_tunnel_domain(mesh, chord_m.max(0.05) * 4.0);
+    // Bank is a real rotation of the mesh (see `panel::solve_panel_at_bank`'s
+    // doc comment) -- when nonzero this must use the ROTATION-INVARIANT
+    // domain sizing (`bank_invariant_domain`), or the wind-tunnel box would
+    // silently be undersized for whatever bank angle was actually solved.
+    // Wings-level (`bank_deg == 0`) keeps the original sizing exactly as
+    // before, so this is a pure extension, not a behavior change at bank=0.
+    let rotated_mesh;
+    let mesh: &Mesh = if request.bank_deg.abs() > 1e-6 {
+        rotated_mesh = record.mesh.rotated_around_x(request.bank_deg);
+        &rotated_mesh
+    } else {
+        &record.mesh
+    };
+    let domain = if request.bank_deg.abs() > 1e-6 {
+        pipeline::bank_invariant_domain(&record.mesh, chord_m.max(0.05) * 4.0)
+    } else {
+        pipeline::default_wind_tunnel_domain(mesh, chord_m.max(0.05) * 4.0)
+    };
 
     let tx_progress = tx.clone();
     let current_gen_check = current_generation.clone();

@@ -11,7 +11,11 @@ import { Slider } from "@/components/ui/slider";
 // sends regardless of the throttle window, so the final value is never lost.
 const THROTTLE_MS = 33;
 
-const DEFAULT_VALUES: SliderValues = { alphaDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 } };
+// bankDeg here is a placeholder only -- this panel has no bank UI of its own
+// (that lives in the viewport's RotateControl) and `fire` below always
+// overwrites it with the engine's live value before sending, so changing
+// alpha/V/CG here can never silently reset whatever bank the user last set.
+const DEFAULT_VALUES: SliderValues = { alphaDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 }, bankDeg: 0 };
 
 /** CL/CDi/Cm live in `OutputBar`, pinned under the viewport -- not here, so
  * this panel is purely inputs and can collapse away without hiding the one
@@ -42,7 +46,9 @@ export function FlightConditionPanel({ chordEstimateM }: { chordEstimateM: numbe
     const now = performance.now();
     if (!force && now - lastSentRef.current < THROTTLE_MS) return;
     lastSentRef.current = now;
-    engine.sendSlider(next);
+    // Always the engine's live bank angle, never this panel's own (always-0)
+    // placeholder -- see DEFAULT_VALUES's comment.
+    engine.sendSlider({ ...next, bankDeg: engine.getLastSliderValues().bankDeg });
   }
 
   function update(patch: Partial<SliderValues> | { cg: Partial<SliderValues["cg"]> }, commit: boolean) {

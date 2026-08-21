@@ -36,6 +36,8 @@ export interface SliderValues {
   alphaDeg: number;
   vInf: number;
   cg: { x: number; y: number; z: number };
+  /** Real geometric bank (roll) angle -- see `RekonEngine.setBankDeg`. */
+  bankDeg: number;
 }
 
 export interface AxisMappingSummary {
@@ -110,6 +112,12 @@ type EventMap = {
   trimResult: DecodedTrimResult;
   polarCurve: PolarPoint[];
   bankSweepFrame: MultiBankSweepFrame;
+  /** Fired whenever the model's bank angle changes -- live while dragging
+   * the viewport's rotate control (no solve yet), on a committed slider
+   * update, or from an applied bank-sweep frame -- so the rotate control's
+   * own displayed angle stays in sync regardless of which of those changed
+   * it. */
+  bankDeg: number;
   solveProgress: DecodedSolveProgress;
   solveStarted: void;
   solveDone: number; // elapsed ms
@@ -154,7 +162,7 @@ class RekonEngine {
    * slider state -- can request a solve at the currently-displayed
    * condition without either panel needing a prop-drilled reference to
    * the other. */
-  private lastSliderValues: SliderValues = { alphaDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 } };
+  private lastSliderValues: SliderValues = { alphaDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 }, bankDeg: 0 };
 
   /** The scene/socket/etc. are created ONCE (by whichever component mounts
    * first / survives StrictMode's double-invoke in dev) and never rebuilt --
@@ -205,14 +213,16 @@ class RekonEngine {
     socket.on(Tag.MeshGeometry, (buffer) => {
       // A fresh mesh should never inherit whatever bank angle a previous
       // sweep animation left the group rotated to.
-      this.bankGroup!.rotation.x = 0;
+      this.setBankDeg(0);
+      this.lastSliderValues = { ...this.lastSliderValues, bankDeg: 0 };
       const decoded = decodeMeshGeometry(buffer);
       const box = this.stlViewer!.setGeometry(decoded);
       this.focusCameraOn(box);
       this.emit("meshGeometry", decoded);
     });
     socket.on(Tag.MeshCleared, () => {
-      this.bankGroup!.rotation.x = 0;
+      this.setBankDeg(0);
+      this.lastSliderValues = { ...this.lastSliderValues, bankDeg: 0 };
       this.stlViewer!.dispose();
       this.streamlines!.dispose();
       this.vorticityField!.dispose();
@@ -304,11 +314,24 @@ class RekonEngine {
 
   sendSlider(values: SliderValues) {
     this.lastSliderValues = values;
-    this.socket?.send(encodeSliderUpdate(values.alphaDeg, values.vInf, values.cg));
+    this.setBankDeg(values.bankDeg);
+    this.socket?.send(encodeSliderUpdate(values.alphaDeg, values.vInf, values.cg, values.bankDeg));
   }
 
   getLastSliderValues(): SliderValues {
     return this.lastSliderValues;
+  }
+
+  /** Rotates the RENDERED model to `deg` instantly, client-side only -- no
+   * network round trip, no re-solve. Used for live visual feedback while
+   * dragging the viewport's rotate control (a full re-solve at a new bank
+   * angle costs a real panel-model rebuild, so it only happens once on
+   * release -- see `RotateControl`), and internally by `sendSlider`/
+   * `applyBankSweepFrame` to keep the rotate control's displayed angle in
+   * sync with whatever last actually changed the bank. */
+  setBankDeg(deg: number) {
+    if (this.bankGroup) this.bankGroup.rotation.x = THREE.MathUtils.degToRad(deg);
+    this.emit("bankDeg", deg);
   }
 
   requestTrim(bracket?: { alphaLoDeg: number; alphaHiDeg: number }) {
@@ -342,7 +365,8 @@ class RekonEngine {
    * CL/CDi/Cm without its own separate animation-aware subscription. */
   applyBankSweepFrame(frame: MultiBankSweepFrame) {
     this.stlViewer?.setPressure(frame.surfaceCp);
-    if (this.bankGroup) this.bankGroup.rotation.x = THREE.MathUtils.degToRad(frame.bankDeg);
+    this.setBankDeg(frame.bankDeg);
+    this.lastSliderValues = { ...this.lastSliderValues, bankDeg: frame.bankDeg };
 
     const sampler = new FieldSampler(frame);
     this.streamlines?.setField(sampler);
@@ -354,11 +378,12 @@ class RekonEngine {
   }
 
   /** Solves at the currently-displayed flight condition (the Flight
-   * Condition panel's last sent alpha/V) unless overridden. */
-  requestSolve(alphaDeg = this.lastSliderValues.alphaDeg, vInf = this.lastSliderValues.vInf) {
+   * Condition panel's last sent alpha/V, and the viewport rotate control's
+   * last committed bank angle) unless overridden. */
+  requestSolve(alphaDeg = this.lastSliderValues.alphaDeg, vInf = this.lastSliderValues.vInf, bankDeg = this.lastSliderValues.bankDeg) {
     this.solveStartedAt = performance.now();
     this.emit("solveStarted", undefined);
-    this.socket?.send(encodeSolveFlowFieldRequest(alphaDeg, vInf));
+    this.socket?.send(encodeSolveFlowFieldRequest(alphaDeg, vInf, bankDeg));
   }
 
   /** Ground grid and wind-tunnel wireframe are scene/environment chrome, not

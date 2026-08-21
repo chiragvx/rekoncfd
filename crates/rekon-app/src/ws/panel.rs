@@ -1,35 +1,96 @@
 use nalgebra::Vector3;
 use rekon_geometry::Mesh;
-use rekon_panel::{coefficients, find_trim, polar, surface_flow, Freestream, PanelError, PanelModel, TrimError};
+use rekon_panel::{
+    coefficients, find_trim, polar, surface_flow, Coefficients, Freestream, PanelConfig, PanelError, PanelModel,
+    ReferenceQuantities, TrimError,
+};
 use rekon_protocol::{encode_f32_frame, tags};
 
-/// `[alpha_deg, v_inf, cg_x, cg_y, cg_z]` — see `web/src/net/protocol.ts`'s
-/// `SliderUpdate` encoder.
+use crate::state::MeshRecord;
+
+/// `[alpha_deg, v_inf, cg_x, cg_y, cg_z, bank_deg]` — see
+/// `web/src/net/protocol.ts`'s `SliderUpdate` encoder. `bank_deg` is
+/// physically a GEOMETRY change (rolling the test article within a
+/// fixed-direction wind tunnel — see `solve_panel_at_bank`'s doc comment),
+/// not a cheap freestream-only parameter like `alpha_deg`/`v_inf`, so callers
+/// must NOT assume changing it is as cheap as the rest of this struct.
 #[derive(Clone, Copy)]
 pub struct SliderState {
     pub freestream: Freestream,
     pub cg: Vector3<f64>,
+    pub bank_deg: f32,
 }
 
 pub fn decode_slider_update(payload: &[f32]) -> Option<SliderState> {
-    if payload.len() < 5 {
+    if payload.len() < 6 {
         return None;
     }
     Some(SliderState {
         freestream: Freestream { alpha_deg: payload[0] as f64, v_inf: payload[1] as f64 },
         cg: Vector3::new(payload[2] as f64, payload[3] as f64, payload[4] as f64),
+        bank_deg: payload[5],
     })
 }
 
 /// A reasonable starting point once a mesh loads, before the user has
 /// touched any slider: level flight (alpha=0), a modest RC-flying-wing
 /// cruise speed, CG at the quarter-chord (a conventional first guess ahead
-/// of the usual neutral-point location for a simple flying wing).
+/// of the usual neutral-point location for a simple flying wing), wings
+/// level (bank=0).
 pub fn default_slider_state(chord_estimate_m: f32) -> SliderState {
     SliderState {
         freestream: Freestream { alpha_deg: 0.0, v_inf: 15.0 },
         cg: Vector3::new(chord_estimate_m as f64 * 0.25, 0.0, 0.0),
+        bank_deg: 0.0,
     }
+}
+
+/// Result of a fresh panel-method solve on the mesh rotated to some bank
+/// angle: the rebuilt model (an interactive caller may want to reuse it for
+/// a following trim/polar request at the same bank) plus its coefficients
+/// and per-vertex Cp.
+pub struct BankPanelSolve {
+    pub panel_model: PanelModel,
+    pub coeffs: Coefficients,
+    pub vertex_cp: Vec<f32>,
+}
+
+/// Rotates `record`'s mesh to `bank_deg`, rebuilds a fresh panel-method model
+/// on it, and solves at `freestream`/`cg` -- the one routine used for EVERY
+/// bank-angle panel solve in this codebase, whether that's a single
+/// interactive "drag the rotate control" update (`connection.rs`'s
+/// `SLIDER_UPDATE` handling) or one frame of the animated bank-sweep batch
+/// (`bank_sweep::run`'s loop): the two are the same physical operation run
+/// once vs. many times, not two different code paths, per the project's
+/// "mix the solve with animated solve" design goal.
+///
+/// `ReferenceQuantities` are always computed from the mesh's ORIGINAL
+/// (unrotated) panels (`record.panels`, already computed once at import),
+/// never from the rotated geometry -- see `solve::PanelConfig::fixed_reference`'s
+/// doc comment for why recomputing them post-rotation would silently corrupt
+/// CL/CD/Cm's normalization and make coefficients incomparable across bank
+/// angles.
+///
+/// Genuinely expensive (a full AIC factorization from scratch, unlike an
+/// alpha-only change which reuses one cached factorization) -- callers on
+/// the async WS task must run this inside `spawn_blocking`.
+pub fn solve_panel_at_bank(
+    record: &MeshRecord,
+    bank_deg: f32,
+    freestream: Freestream,
+    cg: Vector3<f64>,
+) -> Result<BankPanelSolve, PanelError> {
+    let rotated = if bank_deg.abs() > 1e-6 { record.mesh.rotated_around_x(bank_deg) } else { record.mesh.clone() };
+    let fixed_reference = ReferenceQuantities::from_mesh(&record.mesh, &record.panels);
+    let config = PanelConfig { fixed_reference: Some(fixed_reference), ..PanelConfig::default() };
+
+    let panel_model = PanelModel::build(&rotated, config)?;
+    let result = panel_model.solve(freestream)?;
+    let flow = surface_flow(&panel_model, &result);
+    let coeffs = coefficients(&panel_model, &result, &flow, cg);
+    let vertex_cp = per_vertex_cp(&rotated, &flow.cp);
+
+    Ok(BankPanelSolve { panel_model, coeffs, vertex_cp })
 }
 
 /// Solves at `state`, integrates coefficients about `state.cg`, and encodes
@@ -42,14 +103,20 @@ pub fn encode_panel_result(mesh: &Mesh, model: &PanelModel, state: &SliderState)
     let flow = surface_flow(model, &result);
     let coeffs = coefficients(model, &result, &flow, state.cg);
     let vertex_cp = per_vertex_cp(mesh, &flow.cp);
+    Ok(encode_panel_result_raw(coeffs, &vertex_cp))
+}
 
+/// Same wire format as `encode_panel_result`, from already-computed
+/// coefficients/Cp -- what a `BankPanelSolve` (a bank-angle rebuild already
+/// did the solve+integration) hands to `connection.rs` without re-solving.
+pub fn encode_panel_result_raw(coeffs: Coefficients, vertex_cp: &[f32]) -> Vec<u8> {
     let mut payload = Vec::with_capacity(3 + vertex_cp.len());
     payload.push(coeffs.cl as f32);
     payload.push(coeffs.cd_induced as f32);
     payload.push(coeffs.cm as f32);
-    payload.extend(vertex_cp);
+    payload.extend_from_slice(vertex_cp);
 
-    Ok(encode_f32_frame(tags::PANEL_RESULT, &payload))
+    encode_f32_frame(tags::PANEL_RESULT, &payload)
 }
 
 /// Default trim search bracket -- generous enough for essentially any

@@ -13,15 +13,14 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use rekon_geometry::panelize;
-use rekon_panel::{coefficients, surface_flow, Freestream, PanelConfig, PanelModel, ReferenceQuantities};
+use rekon_panel::Freestream;
 use rekon_protocol::{encode_f32_frame, tags};
 use tokio::sync::mpsc::Sender;
 
 use crate::pipeline;
 use crate::state::MeshRecord;
 use crate::ws::lbm::{run_lbm_to_completion, LbmFrameResult, LbmRunError};
-use crate::ws::panel::{per_vertex_cp, SliderState};
+use crate::ws::panel::{solve_panel_at_bank, SliderState};
 
 pub struct BankSweepRequest {
     pub alpha_min_deg: f64,
@@ -99,24 +98,14 @@ pub fn run(
     let chord_m = record.chord_estimate_m;
     let n = request.n_frames.max(1);
 
-    // Computed ONCE from the ORIGINAL (unrotated) mesh and reused for every
-    // frame -- both fix real bugs a naive "just rebuild everything on the
-    // rotated mesh" approach would have:
-    //
-    // 1. `ReferenceQuantities::from_mesh`'s "planform area" is the sum of
-    //    each panel's area weighted by `|normal.y|`, and its "span" is the
-    //    bbox Z-extent -- both only mean "the wing's actual planform area/
-    //    span" when the wing is in its normal orientation. Recomputed fresh
-    //    on a mesh rotated toward bank=90, where the wing presents almost no
-    //    `|normal.y|` at all, they'd silently shrink -- corrupting the very
-    //    denominator CL/CD/Cm are normalized by and making coefficients
-    //    incomparable across bank angles (a real aircraft's wing area
-    //    doesn't change just because it's banked).
-    // 2. The LBM domain must stay a fixed box across the whole animation, or
-    //    the wind-tunnel wireframe visibly resizes every frame -- see
-    //    `pipeline::bank_invariant_domain`'s doc comment.
-    let base_panels = panelize(base_mesh);
-    let fixed_reference = ReferenceQuantities::from_mesh(base_mesh, &base_panels);
+    // The LBM domain must stay a fixed box across the whole animation, or the
+    // wind-tunnel wireframe visibly resizes every frame -- computed ONCE here
+    // (rotation-invariant, see `pipeline::bank_invariant_domain`'s doc
+    // comment) and passed unchanged into every frame's `run_lbm_to_completion`
+    // call below. (The reference-quantities fix -- keeping CL/CD/Cm's
+    // normalization from a rotated mesh's shrunken/corrupted planform area --
+    // lives inside `solve_panel_at_bank`, shared with the interactive
+    // single-bank solve in `connection.rs`.)
     let domain = pipeline::bank_invariant_domain(base_mesh, chord_m.max(0.05) * 4.0);
 
     for i in 0..n {
@@ -128,26 +117,20 @@ pub fn run(
         let alpha_deg = request.alpha_min_deg + (request.alpha_max_deg - request.alpha_min_deg) * t;
         let bank_deg = request.bank_min_deg + (request.bank_max_deg - request.bank_min_deg) * (t as f32);
 
-        let rotated = base_mesh.rotated_around_x(bank_deg);
-
-        let panel_config = PanelConfig { fixed_reference: Some(fixed_reference), ..PanelConfig::default() };
-        let panel_model = match PanelModel::build(&rotated, panel_config) {
-            Ok(m) => m,
-            Err(err) => {
-                tracing::warn!(frame = i, bank_deg, %err, "bank-sweep frame's panel model failed to build, skipping frame");
-                continue;
-            }
-        };
-        let result = match panel_model.solve(Freestream { alpha_deg, v_inf: slider.freestream.v_inf }) {
-            Ok(r) => r,
+        // Same routine the interactive single-bank solve in `connection.rs`
+        // calls for one drag commit -- here it's just called once per frame
+        // in a loop instead of once on demand.
+        let freestream = Freestream { alpha_deg, v_inf: slider.freestream.v_inf };
+        let panel_solve = match solve_panel_at_bank(&record, bank_deg, freestream, slider.cg) {
+            Ok(s) => s,
             Err(err) => {
                 tracing::warn!(frame = i, bank_deg, %err, "bank-sweep frame's panel solve failed, skipping frame");
                 continue;
             }
         };
-        let flow = surface_flow(&panel_model, &result);
-        let coeffs = coefficients(&panel_model, &result, &flow, slider.cg);
-        let vertex_cp = per_vertex_cp(&rotated, &flow.cp);
+        let coeffs = panel_solve.coeffs;
+        let vertex_cp = panel_solve.vertex_cp;
+        let rotated = base_mesh.rotated_around_x(bank_deg);
 
         let tx_progress = tx.clone();
         let current_gen_check = current_generation.clone();
