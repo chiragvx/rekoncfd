@@ -1,0 +1,24 @@
+[package]
+name = "rekon-app"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rekon-protocol = { workspace = true }
+rekon-geometry = { workspace = true }
+rekon-panel = { workspace = true }
+rekon-lbm = { workspace = true }
+
+tokio = { workspace = true }
+axum = { workspace = true }
+glam = { workspace = true }
+nalgebra = { workspace = true }
+open = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+rust-embed = "8"
+mime_guess = "2"
+self_update = { version = "0.44.0", features = ["rustls"] }

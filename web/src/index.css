@@ -1,0 +1,166 @@
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+/* This app has no light theme -- it's a 3D wind-tunnel viewport, which reads
+ * as dark deliberately (mesh/pressure colors, streamlines and the vorticity
+ * point cloud are all designed against a dark ground). Dark is therefore the
+ * single, permanent palette rather than one branch of a light/dark toggle. */
+:root {
+  --radius: 0.5rem;
+
+  /* A near-black with a deliberate cool-blue undertone (not a neutral
+   * grey) -- keeps every surface reading as part of the same instrument
+   * rather than a generic dark-mode default. */
+  --background: 226 24% 4%;
+  --foreground: 210 20% 96%;
+
+  --card: 224 20% 7.5%;
+  --card-foreground: 210 20% 96%;
+
+  --popover: 224 20% 7.5%;
+  --popover-foreground: 210 20% 96%;
+
+  /* The one brand accent carried over from the original hand-rolled UI
+   * (#6fb3ff) -- kept as shadcn's "primary" token rather than its default
+   * near-white, so the tool keeps its existing visual identity. */
+  --primary: 212 100% 72%;
+  --primary-foreground: 222 47% 11%;
+
+  --secondary: 226 12% 14%;
+  --secondary-foreground: 210 20% 96%;
+
+  --muted: 226 12% 14%;
+  --muted-foreground: 217 12% 65%;
+
+  --accent: 226 12% 17%;
+  --accent-foreground: 210 20% 96%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 210 20% 96%;
+
+  /* A second semantic accent (distinct from --primary) for "this is
+   * stable/good" readouts (static margin, trim convergence) -- kept apart
+   * from the brand blue so status and brand never compete for the same hue. */
+  --success: 152 55% 48%;
+  --success-foreground: 210 20% 96%;
+
+  /* Warm counterpart to --success, for advisory/low-confidence readouts
+   * (unit guesses, sparse trailing-edge detection, mesh warnings) -- was
+   * previously a raw Tailwind amber utility scattered across components;
+   * tokenized so it's one deliberate color decision instead of several. */
+  --warning: 38 92% 58%;
+  --warning-foreground: 26 40% 12%;
+
+  --border: 226 12% 18%;
+  --input: 226 12% 18%;
+  --ring: 212 100% 72%;
+
+  --shadow-color: 226 60% 2%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Unbounded", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    /* Only the horizontal axis is pinned: the tool page is built entirely
+     * from `fixed` elements (never contributes to document height) so this
+     * has no effect there, but the marketing/browsing pages have real
+     * scrolling page content that a blanket `overflow: hidden` would break. */
+    overflow-x: hidden;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  /* Small, monospaced numerals for anything showing live-updating physics
+   * readouts (CL/CD/Cm, trim alpha, polar counts, NACA designations) --
+   * keeps digit columns from jittering in width as values change sign or
+   * gain a digit, and reads as an instrument readout rather than prose. */
+  .font-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A soft, low-opacity radial wash of the brand color -- used once per
+   * page behind a hero or focal moment, never stacked, so it stays a
+   * quiet accent rather than a competing gradient background. */
+  .glow-primary {
+    background:
+      radial-gradient(60% 50% at 50% 0%, hsl(var(--primary) / 0.16), transparent 70%);
+  }
+
+  /* Elevated surface treatment shared by cards/panels that want to read as
+   * a considered physical object instead of a flat rectangle: a faint
+   * inner top highlight (as if lit from above) plus a soft outer shadow
+   * with a hue-matched tint rather than pure black. */
+  .surface-elevated {
+    box-shadow:
+      inset 0 1px 0 0 hsl(210 40% 98% / 0.05),
+      0 1px 2px 0 hsl(var(--shadow-color) / 0.5),
+      0 12px 28px -12px hsl(var(--shadow-color) / 0.65);
+  }
+
+  .surface-interactive {
+    transition:
+      transform 0.18s ease,
+      box-shadow 0.18s ease,
+      border-color 0.18s ease;
+  }
+  .surface-interactive:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--primary) / 0.4);
+    box-shadow:
+      inset 0 1px 0 0 hsl(210 40% 98% / 0.06),
+      0 1px 2px 0 hsl(var(--shadow-color) / 0.5),
+      0 20px 36px -16px hsl(var(--shadow-color) / 0.8),
+      0 0 0 1px hsl(var(--primary) / 0.12);
+  }
+}

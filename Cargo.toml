@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rekon-app",
+    "crates/rekon-protocol",
+    "crates/rekon-geometry",
+    "crates/rekon-panel",
+    "crates/rekon-lbm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+rekon-protocol = { path = "crates/rekon-protocol" }
+rekon-geometry = { path = "crates/rekon-geometry" }
+rekon-panel = { path = "crates/rekon-panel" }
+rekon-lbm = { path = "crates/rekon-lbm" }
+
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["ws", "multipart"] }
+tower-http = { version = "0.6", features = ["fs"] }
+bytemuck = { version = "1", features = ["derive"] }
+glam = "0.29"
+rayon = "1"
+nalgebra = "0.33"
+stl_io = "0.8"
+open = "5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true

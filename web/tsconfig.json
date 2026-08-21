@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "esnext",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "allowArbitraryExtensions": true,
+    "skipLibCheck": true,
+
+    /* React */
+    "jsx": "react-jsx",
+
+    /* Path aliases -- mirrors vite.config.ts's resolve.alias so shadcn/ui's
+     * own `@/components/...`-style imports resolve identically in the
+     * editor and at build time. No `baseUrl` (deprecated as of TS 5.x,
+     * removed in 7.0) -- `paths` alone resolves relative to this file. */
+    "paths": { "@/*": ["./src/*"] },
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

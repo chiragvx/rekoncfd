@@ -1,0 +1,11 @@
+[package]
+name = "rekon-geometry"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+glam = { workspace = true }
+rayon = { workspace = true }
+stl_io = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

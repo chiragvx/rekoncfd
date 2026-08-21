@@ -1,0 +1,7 @@
+[package]
+name = "rekon-protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytemuck = { workspace = true }

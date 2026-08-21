@@ -1,0 +1,14 @@
+[package]
+name = "rekon-lbm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rekon-geometry = { workspace = true }
+glam = { workspace = true }
+rayon = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }
