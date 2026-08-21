@@ -11,14 +11,12 @@
 use self_update::cargo_crate_version;
 use serde::Serialize;
 
-/// GitHub repo hosting release builds.
-///
-/// TODO: replace with the real owner/repo once the project is pushed to
-/// GitHub and a release is cut -- until then every check below fails closed
-/// (network/API error), which `check_for_update` already treats as "no
-/// update available" rather than surfacing an error to the user.
-const REPO_OWNER: &str = "REPLACE_ME";
-const REPO_NAME: &str = "rekon-cfd";
+/// GitHub repo hosting release builds. Every check below still fails closed
+/// (network/API error) until an actual release is cut there -- see
+/// `check_for_update`, which treats that as "no update available" rather
+/// than surfacing an error to the user.
+const REPO_OWNER: &str = "chiragvx";
+const REPO_NAME: &str = "rekoncfd";
 
 /// Must match the actual built binary name (`cargo build` produces
 /// `rekon-app.exe` on Windows) -- `self_update` appends the platform exe

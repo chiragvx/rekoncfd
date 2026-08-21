@@ -1,14 +1,12 @@
 /**
  * GitHub repo hosting release builds -- the single source of truth for the
- * Download page's "latest release" info and download link.
- *
- * TODO: replace with the real owner/repo once the project is pushed to
- * GitHub and a release is cut. Until then, `fetchLatestRelease` fails
- * (404/network error) and callers should show a "check back soon" state
- * rather than crash -- mirrors `rekon-app::updater`'s same placeholder on
- * the Rust side, which fails the exact same way for the exact same reason.
+ * Download page's "latest release" info and download link. Until an actual
+ * release is cut there, `fetchLatestRelease` fails (404) and callers should
+ * show a "check back soon" state rather than crash -- mirrors
+ * `rekon_app::updater`'s same repo constant on the Rust side, which fails
+ * the exact same way for the exact same reason.
  */
-export const GITHUB_REPO = { owner: "REPLACE_ME", name: "rekon-cfd" };
+export const GITHUB_REPO = { owner: "chiragvx", name: "rekoncfd" };
 
 export interface LatestRelease {
   version: string;

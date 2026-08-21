@@ -43,11 +43,11 @@ and can download+install a newer release over itself (`POST
 /api/update/apply`) without the user ever re-downloading it. A hosted web
 deployment doesn't need any of this — it's just redeployed whenever we ship.
 
-Two places currently hold a `REPLACE_ME` placeholder repo slug that must be
-updated once this project has a real GitHub remote:
-
-- `crates/rekon-app/src/updater.rs` — `REPO_OWNER` / `REPO_NAME`
-- `web/src/lib/release.ts` — `GITHUB_REPO`
+Both the Rust side (`crates/rekon-app/src/updater.rs`, `REPO_OWNER`/`REPO_NAME`)
+and the frontend (`web/src/lib/release.ts`, `GITHUB_REPO`) point at
+`chiragvx/rekoncfd`. Until that repo has an actual release, both fail closed
+(404/network error), which reads as "no update available" / "check back
+soon" rather than an error.
 
 To cut a release:
 
