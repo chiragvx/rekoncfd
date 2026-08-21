@@ -1,3 +1,4 @@
+mod bank_sweep;
 mod connection;
 mod lbm;
 mod panel;

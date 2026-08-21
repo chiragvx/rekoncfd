@@ -13,6 +13,8 @@ export const Tag = {
   TrimRequest: 0x23,
   TrimResult: 0x24,
   PolarRequest: 0x25,
+  MultiBankSweepRequest: 0x40,
+  MultiBankSweepFrame: 0x41,
   SolveFlowFieldRequest: 0x30,
   SolveProgress: 0x31,
   SolveResult: 0x32,
@@ -137,6 +139,67 @@ export function decodePolarCurve(frame: DecodedFrame): PolarPoint[] {
     points.push({ alphaDeg: frame.payload[o], cl: frame.payload[o + 1], cdInduced: frame.payload[o + 2], cm: frame.payload[o + 3] });
   }
   return points;
+}
+
+/** Requests a "banked flight" animation: `nFrames` discrete frames sweeping
+ * alpha and bank together, each one a REAL re-solve (fresh panel-method
+ * factorization + a full LBM run) on the mesh rotated to that frame's bank
+ * angle -- not a cosmetic render-time rotation. Genuinely expensive by
+ * design; frames stream back one at a time as `MultiBankSweepFrame`s,
+ * possibly well apart in time, each preceded by its own `SolveProgress`
+ * stream (same tag/shape the on-demand single solve uses). */
+export function encodeMultiBankSweepRequest(
+  alphaMinDeg: number,
+  alphaMaxDeg: number,
+  bankMinDeg: number,
+  bankMaxDeg: number,
+  nFrames: number,
+): ArrayBuffer {
+  return encodeF32Frame(Tag.MultiBankSweepRequest, new Float32Array([alphaMinDeg, alphaMaxDeg, bankMinDeg, bankMaxDeg, nFrames]));
+}
+
+export interface MultiBankSweepFrame {
+  frameIndex: number;
+  nFrames: number;
+  alphaDeg: number;
+  bankDeg: number;
+  cl: number;
+  cdInduced: number;
+  cm: number;
+  velDims: [number, number, number];
+  domainMin: [number, number, number];
+  domainMax: [number, number, number];
+  /** Per-vertex Cp (LBM-derived, same convention as `DecodedSolveResult.surfaceCp`). */
+  surfaceCp: Float32Array;
+  /** vx,vy,vz interleaved, flattened x + nx*(y + ny*z) over velDims (lattice units). */
+  velocity: Float32Array;
+}
+
+// Mirrors rekon-app's ws/bank_sweep.rs encode_frame: [frame_index, n_frames,
+// alpha_deg, bank_deg, cl, cd_induced, cm, n_vertices, vel_nx, vel_ny, vel_nz,
+// domain_min(3), domain_max(3), surface_cp[per-vertex], velocity[3*nx*ny*nz]].
+export function decodeMultiBankSweepFrame(frame: DecodedFrame): MultiBankSweepFrame {
+  const p = frame.payload;
+  const nVertices = p[7];
+  const nx = p[8];
+  const ny = p[9];
+  const nz = p[10];
+  const cpStart = 17;
+  const cpEnd = cpStart + nVertices;
+  return {
+    frameIndex: p[0],
+    nFrames: p[1],
+    alphaDeg: p[2],
+    bankDeg: p[3],
+    cl: p[4],
+    cdInduced: p[5],
+    cm: p[6],
+    velDims: [nx, ny, nz],
+    domainMin: [p[11], p[12], p[13]],
+    domainMax: [p[14], p[15], p[16]],
+    surfaceCp: p.subarray(cpStart, cpEnd),
+    velocity: p.subarray(cpEnd, cpEnd + nx * ny * nz * 3),
+  };
 }
 
 export interface DecodedSolveProgress {

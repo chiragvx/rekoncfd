@@ -5,6 +5,7 @@ use rekon_protocol::{encode_f32_frame, tags};
 
 /// `[alpha_deg, v_inf, cg_x, cg_y, cg_z]` — see `web/src/net/protocol.ts`'s
 /// `SliderUpdate` encoder.
+#[derive(Clone, Copy)]
 pub struct SliderState {
     pub freestream: Freestream,
     pub cg: Vector3<f64>,
@@ -133,7 +134,7 @@ pub fn encode_polar_curve(
     Ok(encode_f32_frame(tags::POLAR_CURVE, &payload))
 }
 
-fn per_vertex_cp(mesh: &Mesh, panel_cp: &[f64]) -> Vec<f32> {
+pub(crate) fn per_vertex_cp(mesh: &Mesh, panel_cp: &[f64]) -> Vec<f32> {
     let mut sum = vec![0.0f64; mesh.vertices.len()];
     let mut count = vec![0u32; mesh.vertices.len()];
     for (tri, &cp) in mesh.triangles.iter().zip(panel_cp) {
@@ -147,3 +148,4 @@ fn per_vertex_cp(mesh: &Mesh, panel_cp: &[f64]) -> Vec<f32> {
         .map(|(&s, &c)| if c > 0 { (s / c as f64) as f32 } else { 0.0 })
         .collect()
 }
+

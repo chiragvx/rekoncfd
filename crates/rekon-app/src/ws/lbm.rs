@@ -2,8 +2,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use glam::Vec3;
-use rekon_geometry::voxelize;
-use rekon_lbm::{sample_flow_field, Progress, SolveOutcome, Solver};
+use rekon_geometry::{voxelize, Aabb, Mesh};
+use rekon_lbm::{sample_flow_field, Progress, SolveOutcome, Solver, SolverError};
 use rekon_protocol::{encode_f32_frame, encode_solve_result, tags};
 use tokio::sync::mpsc::Sender;
 
@@ -67,6 +67,72 @@ fn lattice_params(alpha_deg: f64, v_inf: f64, chord_m: f32, mean_cell_size_m: f3
     (tau, u_inlet)
 }
 
+/// Result of running one full LBM solve to completion.
+pub(crate) struct LbmFrameResult {
+    pub surface_cp: Vec<f32>,
+    pub vel_dims: (u32, u32, u32),
+    pub domain_min: [f32; 3],
+    pub domain_max: [f32; 3],
+    pub velocity: Vec<f32>,
+}
+
+pub(crate) enum LbmRunError {
+    Solver(SolverError),
+    Diverged,
+    StoppedByCaller,
+}
+
+/// Voxelizes `mesh` into `domain`, configures a solver for `alpha_deg`/
+/// `v_inf`, and runs it to completion (or until `should_stop`) — the shared
+/// core of both the on-demand single solve (`run_solve`, below) and the
+/// bank-sweep animation's per-frame batch job (`ws::bank_sweep`): both just
+/// need "given this mesh + domain + condition, run LBM to completion and
+/// hand back the field", differing only in what they do with the result
+/// afterward (encode+send one `SolveResult`, vs. bundle it alongside a
+/// panel-method solve into one `MultiBankSweepFrame`) and in WHERE `domain`
+/// comes from -- `run_solve` computes it fresh from its one mesh, same as
+/// always, while the bank-sweep computes it ONCE (from the original,
+/// unrotated mesh) and passes that SAME domain for every rotated frame, so
+/// the wind-tunnel box never changes size/shape across a batch (see
+/// `pipeline::bank_invariant_domain`'s doc comment for why that matters).
+/// `mesh` is passed in (rather than always coming from a `MeshRecord`)
+/// specifically so the bank-sweep job can pass a ROTATED mesh — a real
+/// re-solve on rotated geometry, not the original.
+pub(crate) fn run_lbm_to_completion(
+    mesh: &Mesh,
+    domain: Aabb,
+    chord_m: f32,
+    alpha_deg: f64,
+    v_inf: f64,
+    mut on_progress: impl FnMut(Progress),
+    mut should_stop: impl FnMut() -> bool,
+) -> Result<LbmFrameResult, LbmRunError> {
+    let grid = voxelize(mesh, domain, SOLVE_VOXEL_DIMS);
+    let cell_size = grid.cell_size();
+    let mean_cell_size = (cell_size.x + cell_size.y + cell_size.z) / 3.0;
+
+    let (tau, u_inlet) = lattice_params(alpha_deg, v_inf, chord_m, mean_cell_size);
+
+    let mut solver = Solver::new(grid, tau, u_inlet).map_err(LbmRunError::Solver)?;
+
+    let outcome = solver.run(MAX_STEPS, &mut on_progress, &mut should_stop);
+    match outcome {
+        SolveOutcome::StoppedByCaller { .. } => return Err(LbmRunError::StoppedByCaller),
+        SolveOutcome::Diverged { .. } => return Err(LbmRunError::Diverged),
+        SolveOutcome::Completed { .. } => {}
+    }
+
+    let sample = sample_flow_field(mesh, solver.grid(), solver.lattice(), U_LATTICE, VELOCITY_SAMPLE_DIMS);
+    let domain = sample.velocity_field.domain;
+    Ok(LbmFrameResult {
+        surface_cp: sample.surface_cp,
+        vel_dims: (VELOCITY_SAMPLE_DIMS.0 as u32, VELOCITY_SAMPLE_DIMS.1 as u32, VELOCITY_SAMPLE_DIMS.2 as u32),
+        domain_min: domain.min.into(),
+        domain_max: domain.max.into(),
+        velocity: sample.velocity_field.data,
+    })
+}
+
 /// Runs one on-demand solve to completion (or until `generation` no longer
 /// matches `current_generation`, meaning a newer request superseded this
 /// one), streaming `SolveProgress` frames and a final `SolveResult` back
@@ -82,55 +148,38 @@ pub fn run_solve(
     let mesh = &record.mesh;
     let chord_m = record.chord_estimate_m;
     let domain = pipeline::default_wind_tunnel_domain(mesh, chord_m.max(0.05) * 4.0);
-    let grid = voxelize(mesh, domain, SOLVE_VOXEL_DIMS);
-    let cell_size = grid.cell_size();
-    let mean_cell_size = (cell_size.x + cell_size.y + cell_size.z) / 3.0;
-
-    let (tau, u_inlet) = lattice_params(request.alpha_deg, request.v_inf, chord_m, mean_cell_size);
-
-    let mut solver = match Solver::new(grid, tau, u_inlet) {
-        Ok(s) => s,
-        Err(err) => {
-            tracing::warn!(%err, "failed to configure LBM solver");
-            let _ = tx.blocking_send(encode_f32_frame(tags::SOLVE_CANCELLED_OR_ERROR, &[]));
-            return;
-        }
-    };
 
     let tx_progress = tx.clone();
     let current_gen_check = current_generation.clone();
-    let outcome = solver.run(
-        MAX_STEPS,
-        |p: Progress| {
+    let result = run_lbm_to_completion(
+        mesh,
+        domain,
+        chord_m,
+        request.alpha_deg,
+        request.v_inf,
+        move |p: Progress| {
             let payload = [p.step as f32, p.max_steps as f32, p.max_velocity, p.mean_density];
             let _ = tx_progress.try_send(encode_f32_frame(tags::SOLVE_PROGRESS, &payload));
         },
-        || current_gen_check.load(Ordering::Relaxed) != generation,
+        move || current_gen_check.load(Ordering::Relaxed) != generation,
     );
 
-    match outcome {
-        SolveOutcome::StoppedByCaller { .. } => {
+    match result {
+        Ok(r) => {
+            let frame = encode_solve_result(tags::SOLVE_RESULT, &r.surface_cp, r.vel_dims, r.domain_min, r.domain_max, &r.velocity);
+            let _ = tx.blocking_send(frame);
+        }
+        Err(LbmRunError::StoppedByCaller) => {
             // A newer request has already taken over this connection's
             // output; no need to send anything for this superseded run.
-            return;
         }
-        SolveOutcome::Diverged { steps } => {
-            tracing::warn!(steps, "LBM solve diverged (tau {tau} likely still too aggressive for this case)");
+        Err(LbmRunError::Diverged) => {
+            tracing::warn!("LBM solve diverged (tau likely still too aggressive for this case)");
             let _ = tx.blocking_send(encode_f32_frame(tags::SOLVE_CANCELLED_OR_ERROR, &[]));
-            return;
         }
-        SolveOutcome::Completed { .. } => {}
+        Err(LbmRunError::Solver(err)) => {
+            tracing::warn!(%err, "failed to configure LBM solver");
+            let _ = tx.blocking_send(encode_f32_frame(tags::SOLVE_CANCELLED_OR_ERROR, &[]));
+        }
     }
-
-    let sample = sample_flow_field(mesh, solver.grid(), solver.lattice(), U_LATTICE, VELOCITY_SAMPLE_DIMS);
-    let domain = sample.velocity_field.domain;
-    let frame = encode_solve_result(
-        tags::SOLVE_RESULT,
-        &sample.surface_cp,
-        (VELOCITY_SAMPLE_DIMS.0 as u32, VELOCITY_SAMPLE_DIMS.1 as u32, VELOCITY_SAMPLE_DIMS.2 as u32),
-        domain.min.into(),
-        domain.max.into(),
-        &sample.velocity_field.data,
-    );
-    let _ = tx.blocking_send(frame);
 }

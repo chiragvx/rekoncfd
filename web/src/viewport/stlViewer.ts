@@ -5,12 +5,12 @@ import { applyNeutralColor, applyPressureColors } from "../viz/pressureColormap"
 
 /** Renders the currently-imported wing mesh; replaces itself wholesale on each new import. */
 export class StlViewer {
-  private readonly scene: THREE.Scene;
+  private readonly scene: THREE.Object3D;
   private mesh: THREE.Mesh | null = null;
   private lastCp: Float32Array | null = null;
   private pressureVisible = true;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Object3D) {
     this.scene = scene;
   }
 

@@ -49,11 +49,11 @@ const POINT_SIZE = 0.006;
  * needed: `SolveResult` already carries the full velocity grid + its domain
  * bounds, which is all a curl calculation needs. */
 export class VorticityField {
-  private readonly scene: THREE.Scene;
+  private readonly scene: THREE.Object3D;
   private points: THREE.Points | null = null;
   private visible = false;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Object3D) {
     this.scene = scene;
   }
 

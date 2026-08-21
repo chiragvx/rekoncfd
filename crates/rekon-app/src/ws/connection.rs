@@ -6,6 +6,7 @@ use rekon_protocol::{decode_f32_frame, encode_f32_frame, encode_mesh_geometry, t
 use tokio::sync::mpsc;
 
 use crate::state::{AppState, MeshRecord};
+use crate::ws::bank_sweep;
 use crate::ws::lbm;
 use crate::ws::panel::{self, SliderState};
 
@@ -130,6 +131,23 @@ async fn handle_binary_message(
                 Ok(())
             }
         };
+    }
+
+    if tag == tags::MULTI_BANK_SWEEP_REQUEST {
+        let Some(request) = bank_sweep::decode_request(&payload) else { return Ok(()) };
+        let Some(record) = current else { return Ok(()) };
+        let Some(slider) = slider_state.as_ref().copied() else { return Ok(()) };
+
+        // Same supersede-on-newer-request mechanism as the on-demand LBM
+        // solve: bumping this generation cancels an in-flight batch if
+        // another request, a reorient, or a mesh clear arrives mid-run.
+        let generation = state.solve_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let current_generation = state.solve_generation.clone();
+        let record = record.clone();
+        let tx = lbm_tx.clone();
+        tokio::task::spawn_blocking(move || {
+            bank_sweep::run(record, slider, request, generation, current_generation, tx);
+        });
     }
 
     if tag == tags::SOLVE_FLOW_FIELD_REQUEST {

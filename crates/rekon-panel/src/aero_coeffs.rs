@@ -212,24 +212,22 @@ pub fn lift_and_moment(model: &PanelModel, result: &SolveResult, flow: &SurfaceF
     (cl, cm)
 }
 
-/// Induced drag via Trefftz-plane analysis: integrate the wake's own induced
-/// downwash-squared-like kinetic energy in a plane far downstream, rather
-/// than near-field pressure integration (which is numerically noisy for drag
-/// specifically -- see the plan/module docs: near-field Cp errors that barely
-/// affect CL/Cm can dominate CDi, since drag is itself already a small
-/// difference of large pressure forces, "d'Alembert's-paradox territory").
-/// This crate's wake is a *finite* stand-in for the analytically semi-
-/// infinite trailing vortex sheet, so this integrates the sheet's own
-/// spanwise circulation distribution (`mu_upper - mu_lower` at each wake
-/// station) via the classical Trefftz-plane result for a planar wake:
-/// `CDi = (1 / (2 * q_inf * S)) * integral(gamma(z) * w_induced(z) dz)`,
-/// approximated here by the simpler, standard discrete form
-/// `CDi = -(1/(2 S)) * sum_over_stations(mu_wake_k * dGamma/dz_k * dz_k) / Vinf^2`
-/// is intentionally NOT attempted at only `n_wake_strips` stations (too coarse
-/// for a numerical derivative of downwash) -- instead this uses the direct,
-/// robust equivalent: `CDi = (1/(q_inf*S)) * sum_k (0.5 * mu_wake_k * dGamma_k)`
-/// where `dGamma_k` is the spanwise derivative of the wake circulation, itself
-/// obtained via a simple finite-difference across sorted stations.
+/// Induced drag via Trefftz-plane analysis: integrate the wake's induced
+/// cross-flow kinetic energy in a plane far downstream, rather than
+/// near-field pressure integration (which is numerically noisy for drag
+/// specifically: near-field Cp errors that barely affect CL/Cm can dominate
+/// CDi, since drag is itself already a small difference of large pressure
+/// forces, "d'Alembert's-paradox territory").
+///
+/// NOTE an earlier version of this function used the local product
+/// `0.5 * Gamma(z) * dGamma/dz` as the integrand -- which is mathematically
+/// wrong: `integral(Gamma * Gamma' dz) = [Gamma^2 / 2]` evaluated tip-to-tip,
+/// identically ZERO for any circulation distribution vanishing at the tips
+/// (i.e. every physical wing), so it returned pure discretization noise
+/// around 0 regardless of the actual loading. The correct Trefftz integrand
+/// couples Gamma(z) with the NONLOCAL induced downwash
+/// `w(z) = (1/2pi) * integral(dGamma/dz' / (z - z') dz')`, computed here in
+/// its standard discrete form -- see `trefftz_drag_sum`.
 pub fn induced_drag_trefftz_plane(model: &PanelModel, result: &SolveResult) -> f64 {
     if model.wake_panels.len() < 2 {
         return 0.0;
@@ -242,22 +240,72 @@ pub fn induced_drag_trefftz_plane(model: &PanelModel, result: &SolveResult) -> f
     stations.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
     let v_inf = result.freestream.v_inf.max(1e-9);
-    let mut drag_force = 0.0;
-    for k in 0..stations.len() {
-        let (z, gamma) = stations[k];
-        let z_lo = if k == 0 { z } else { stations[k - 1].0 };
-        let z_hi = if k + 1 == stations.len() { z } else { stations[k + 1].0 };
-        let dz = (z_hi - z_lo).max(1e-9) * 0.5;
-        let gamma_lo = if k == 0 { 0.0 } else { stations[k - 1].1 };
-        let gamma_hi = if k + 1 == stations.len() { 0.0 } else { stations[k + 1].1 };
-        let dgamma_dz = (gamma_hi - gamma_lo) / (2.0 * dz).max(1e-9);
-        // Induced drag = 0.5 * rho * integral(Gamma(z) * dGamma/dz(z)) dz for
-        // a planar trailing sheet's self-induced (Trefftz-plane) drag.
-        drag_force += 0.5 * gamma * dgamma_dz * (dz * 2.0);
+    let q_ref_area = model.reference.area.max(1e-9);
+    trefftz_drag_sum(&stations) / (v_inf * v_inf * q_ref_area)
+}
+
+/// The discrete Trefftz-plane energy sum `Di / (rho/2) = sum_k(Gamma_k * w_k
+/// * dz_k)`, for `stations` = sorted `(z, Gamma)` pairs. In the far-downstream
+/// (Trefftz) plane the trailing vortex sheet reduces to a 2D problem: each
+/// spanwise strip of constant circulation Gamma_k over `[z_lo, z_hi]` is a
+/// constant-strength doublet segment, exactly equivalent to a point-vortex
+/// PAIR of strength +-Gamma_k at its two edges (adjacent strips' shared-edge
+/// vortices partially cancel, leaving `Gamma_k - Gamma_k+1` -- the shed
+/// vorticity -- plus the full tip vortices at the extreme edges, all
+/// automatically). A trailing filament far upstream of the evaluation plane
+/// looks INFINITE there, so each edge vortex induces `Gamma_e / (2pi * (z -
+/// z_e))` normal to the sheet; `w_k` is that sum evaluated at strip k's
+/// midpoint (midpoint-rule quadrature keeps the self-term finite). Callers
+/// nondimensionalize: `CDi = Di / (q * S) = this / (Vinf^2 * S)`.
+///
+/// Verified against the exact classical result for elliptic loading,
+/// `CDi = CL^2 / (pi * AR)` -- see `elliptic_loading_recovers_classical_
+/// induced_drag` below.
+fn trefftz_drag_sum(stations: &[(f64, f64)]) -> f64 {
+    let n = stations.len();
+    if n < 2 {
+        return 0.0;
     }
 
-    let q_ref_area = model.reference.area.max(1e-9);
-    drag_force / (v_inf * v_inf * q_ref_area)
+    // Strip boundaries: midway between neighboring stations; the extreme
+    // strips extend outboard by half their inboard spacing (Gamma drops to 0
+    // just past the outermost stations -- the tip vortices).
+    let mut z_lo = vec![0.0; n];
+    let mut z_hi = vec![0.0; n];
+    for k in 0..n {
+        z_lo[k] = if k == 0 {
+            stations[0].0 - 0.5 * (stations[1].0 - stations[0].0)
+        } else {
+            0.5 * (stations[k - 1].0 + stations[k].0)
+        };
+        z_hi[k] = if k + 1 == n {
+            stations[n - 1].0 + 0.5 * (stations[n - 1].0 - stations[n - 2].0)
+        } else {
+            0.5 * (stations[k].0 + stations[k + 1].0)
+        };
+    }
+
+    let mut edge_vortices = Vec::with_capacity(2 * n);
+    for k in 0..n {
+        let gamma = stations[k].1;
+        edge_vortices.push((z_lo[k], gamma));
+        edge_vortices.push((z_hi[k], -gamma));
+    }
+
+    let mut energy_sum = 0.0;
+    for k in 0..n {
+        let z_mid = 0.5 * (z_lo[k] + z_hi[k]);
+        let dz = z_hi[k] - z_lo[k];
+        let mut w = 0.0;
+        for &(z_e, gamma_e) in &edge_vortices {
+            let d = z_mid - z_e;
+            if d.abs() > 1e-12 {
+                w += gamma_e / (2.0 * std::f64::consts::PI * d);
+            }
+        }
+        energy_sum += stations[k].1 * w * dz;
+    }
+    energy_sum
 }
 
 pub fn coefficients(model: &PanelModel, result: &SolveResult, flow: &SurfaceFlow, cg: Vector3<f64>) -> Coefficients {
@@ -381,6 +429,96 @@ mod tests {
         for w in cls.windows(2) {
             assert!(w[1] > w[0], "CL should increase monotonically with alpha, got {cls:?}");
         }
+    }
+
+    /// The exact classical benchmark for any Trefftz-plane drag computation:
+    /// elliptic loading `Gamma(z) = Gamma0 * sqrt(1 - (2z/b)^2)` gives
+    /// `Di = (rho * pi / 8) * Gamma0^2`, i.e. `CDi = CL^2 / (pi * AR)`
+    /// exactly. This is a pure-math test of `trefftz_drag_sum` (no panel
+    /// solve involved), so the tolerance is tight -- it would have caught the
+    /// old `Gamma * dGamma/dz` integrand, which returns ~0 for ANY loading
+    /// (its integral telescopes to `[Gamma^2/2]` = 0 tip-to-tip).
+    #[test]
+    fn elliptic_loading_recovers_classical_induced_drag() {
+        let (span, gamma0, v_inf, area) = (2.0_f64, 0.8_f64, 15.0_f64, 0.5_f64);
+        let n = 60;
+        let stations: Vec<(f64, f64)> = (0..n)
+            .map(|k| {
+                // Cosine-spaced stations resolve the tip gradient well.
+                let theta = (k as f64 + 0.5) / n as f64 * std::f64::consts::PI;
+                let z = -0.5 * span * theta.cos();
+                (z, gamma0 * (1.0 - (2.0 * z / span).powi(2)).max(0.0).sqrt())
+            })
+            .collect();
+
+        let cdi = trefftz_drag_sum(&stations) / (v_inf * v_inf * area);
+
+        // Exact: Di/(rho/2) = (pi/4)*Gamma0^2, so CDi = pi*Gamma0^2/(4 V^2 S).
+        // (Equivalently CL^2/(pi*AR) with CL = pi*b*Gamma0/(2*V*S).)
+        let cdi_exact = std::f64::consts::PI * gamma0 * gamma0 / (4.0 * v_inf * v_inf * area);
+        let cl = std::f64::consts::PI * span * gamma0 / (2.0 * v_inf * area);
+        let aspect_ratio = span * span / area;
+        assert!(
+            (cdi_exact - cl * cl / (std::f64::consts::PI * aspect_ratio)).abs() < 1e-12,
+            "self-check of the two closed forms"
+        );
+
+        let rel_err = (cdi - cdi_exact).abs() / cdi_exact;
+        eprintln!("elliptic CDi: computed={cdi:.6} exact={cdi_exact:.6} rel_err={rel_err:.4}");
+        assert!(rel_err < 0.05, "discrete Trefftz sum should match CL^2/(pi*AR) within 5%, got rel_err={rel_err}");
+        assert!(cdi > 0.0, "induced drag must be positive for nonzero lift");
+    }
+
+    /// End-to-end sanity: a real solved lifting wing must report a POSITIVE
+    /// CDi consistent with the minimum-drag bound `CL^2 / (pi * AR)` -- where
+    /// CL is taken from the WAKE's own circulation distribution (`L = rho * V
+    /// * integral(Gamma dz)`), NOT the near-field Cp integration: the two CLs
+    /// live in different accuracy regimes (near-field surface-velocity
+    /// reconstruction has a documented overprediction ceiling on thick
+    /// bodies; the wake circulation comes straight from the machine-precision
+    /// mu solve), and Trefftz drag is a functional of the circulation alone,
+    /// so that's the self-consistent comparison. The old integrand returned
+    /// ~0 (noise) here regardless of lift.
+    #[test]
+    fn solved_wing_induced_drag_is_positive_and_consistent_with_lift() {
+        let raw = crate::fixtures::smooth_symmetric_wing(1.0, 0.2, 0.02, 14, 10);
+        let (mesh, _) = rekon_geometry::repair(&raw, 1e-5);
+        let model = PanelModel::build(&mesh, PanelConfig::default()).expect("builds");
+        let freestream = Freestream { alpha_deg: 6.0, v_inf: 15.0 };
+        let result = model.solve(freestream).expect("solves");
+        let cd_induced = induced_drag_trefftz_plane(&model, &result);
+
+        // CL implied by the wake circulation: CL = 2 * integral(Gamma dz) / (V * S).
+        let mut stations: Vec<(f64, f64)> = model
+            .wake_panels
+            .iter()
+            .map(|w| (w.z_center, result.mu[w.upper_panel] - result.mu[w.lower_panel]))
+            .collect();
+        stations.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let mut gamma_integral = 0.0;
+        for k in 0..stations.len() {
+            let z_lo = if k == 0 { stations[0].0 } else { 0.5 * (stations[k - 1].0 + stations[k].0) };
+            let z_hi = if k + 1 == stations.len() {
+                stations[k].0
+            } else {
+                0.5 * (stations[k].0 + stations[k + 1].0)
+            };
+            gamma_integral += stations[k].1 * (z_hi - z_lo);
+        }
+        let cl_wake = 2.0 * gamma_integral / (freestream.v_inf * model.reference.area);
+
+        let aspect_ratio = model.reference.span.powi(2) / model.reference.area;
+        let cdi_min = cl_wake * cl_wake / (std::f64::consts::PI * aspect_ratio);
+        eprintln!("CL_wake={cl_wake:.4} CDi={cd_induced:.5} elliptic minimum CDi={cdi_min:.5} (AR={aspect_ratio:.2})");
+        assert!(cd_induced > 0.0, "lifting wing must have positive induced drag, got {cd_induced}");
+        // Elliptic loading is the MINIMUM drag for a given lift; real
+        // (non-elliptic) loading sits above it, and shouldn't be wildly off:
+        // accept [0.9x, 3x] (0.9 rather than 1.0 leaves margin for the
+        // discrete quadrature in both quantities).
+        assert!(
+            cd_induced > 0.9 * cdi_min && cd_induced < 3.0 * cdi_min,
+            "CDi={cd_induced} should be within [0.9x, 3x] of the elliptic minimum {cdi_min} for its own circulation"
+        );
     }
 
     #[test]

@@ -9,6 +9,24 @@ pub struct Mesh {
 }
 
 impl Mesh {
+    /// Rigid rotation of every vertex around the X axis (this crate's fixed
+    /// flow/chordwise direction) by `degrees` -- e.g. the sweep animation's
+    /// "bank angle", which needs a REAL rotated mesh (re-panelized,
+    /// re-voxelized, re-solved) rather than a cosmetic render-time
+    /// transform, since a pure viewport rotation can't change what the
+    /// solver actually computed. Winding/normals need no separate
+    /// correction: a rotation about a single axis is always
+    /// orientation-preserving (unlike an arbitrary axis permutation/
+    /// mirroring, see `frame::FrameTransform::flips_winding`), and normals
+    /// are always recomputed from winding, never stored.
+    pub fn rotated_around_x(&self, degrees: f32) -> Mesh {
+        let rotation = glam::Quat::from_rotation_x(degrees.to_radians());
+        Mesh {
+            vertices: self.vertices.iter().map(|&v| rotation * v).collect(),
+            triangles: self.triangles.clone(),
+        }
+    }
+
     pub fn triangle_positions(&self, tri: [u32; 3]) -> [Vec3; 3] {
         [
             self.vertices[tri[0] as usize],
@@ -90,6 +108,81 @@ impl Aabb {
         Aabb {
             min: self.min - margin,
             max: self.max + margin,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unit_cube_mesh() -> Mesh {
+        let v = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
+        let vertices = vec![
+            v(0.0, 0.0, 0.0),
+            v(1.0, 0.0, 0.0),
+            v(1.0, 1.0, 0.0),
+            v(0.0, 1.0, 0.0),
+            v(0.0, 0.0, 1.0),
+            v(1.0, 0.0, 1.0),
+            v(1.0, 1.0, 1.0),
+            v(0.0, 1.0, 1.0),
+        ];
+        let triangles = vec![
+            [0, 2, 1],
+            [0, 3, 2],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 6, 2],
+            [3, 7, 6],
+            [0, 7, 3],
+            [0, 4, 7],
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+        Mesh { vertices, triangles }
+    }
+
+    fn signed_volume(mesh: &Mesh) -> f32 {
+        mesh.triangles
+            .iter()
+            .map(|&tri| {
+                let [a, b, c] = mesh.triangle_positions(tri);
+                a.dot(b.cross(c)) / 6.0
+            })
+            .sum()
+    }
+
+    #[test]
+    fn zero_degree_rotation_is_identity() {
+        let mesh = unit_cube_mesh();
+        let rotated = mesh.rotated_around_x(0.0);
+        for (a, b) in mesh.vertices.iter().zip(&rotated.vertices) {
+            assert!((*a - *b).length() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn ninety_degrees_maps_y_to_z() {
+        let mesh = Mesh { vertices: vec![Vec3::new(0.0, 1.0, 0.0)], triangles: vec![] };
+        let rotated = mesh.rotated_around_x(90.0);
+        assert!((rotated.vertices[0] - Vec3::new(0.0, 0.0, 1.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn rotation_preserves_outward_winding() {
+        let mesh = unit_cube_mesh();
+        assert!(signed_volume(&mesh) > 0.0, "fixture itself must be outward-oriented");
+
+        for degrees in [15.0, 45.0, 90.0, 180.0, 270.0] {
+            let rotated = mesh.rotated_around_x(degrees);
+            assert!(
+                signed_volume(&rotated) > 0.0,
+                "rotation by {degrees} degrees should never flip winding, got signed volume {}",
+                signed_volume(&rotated)
+            );
         }
     }
 }

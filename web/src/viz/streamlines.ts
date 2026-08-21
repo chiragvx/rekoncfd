@@ -54,7 +54,7 @@ const PULSE_LUT = (() => {
  *
  * Integration is RK2 (midpoint) with a fixed arc-length step. */
 export class Streamlines {
-  private readonly scene: THREE.Scene;
+  private readonly scene: THREE.Object3D;
   private lines: THREE.LineSegments | null = null;
   private positionAttr: THREE.BufferAttribute | null = null;
   private colorAttr: THREE.BufferAttribute | null = null;
@@ -73,7 +73,7 @@ export class Streamlines {
   private seedPlaneAxis: SliceAxis = SliceAxis.X;
   private seedPlanePosition01 = 0.1;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Object3D) {
     this.scene = scene;
   }
 

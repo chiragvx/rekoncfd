@@ -36,6 +36,14 @@ export class WindTunnel {
     }
   }
 
+  /** Toggling the persistent `group` (not recreating it) means this survives
+   * `clear()`/`setBounds()` cycles (mesh clear, re-import) without needing
+   * separate bookkeeping -- whoever owns the toggle just calls this again
+   * whenever they want. */
+  setVisible(visible: boolean) {
+    this.group.visible = visible;
+  }
+
   setBounds(min: THREE.Vector3, max: THREE.Vector3) {
     this.clear();
 

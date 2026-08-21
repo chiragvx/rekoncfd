@@ -34,11 +34,24 @@ pub struct PanelConfig {
     /// Vortex-filament core radius as a multiple of the mean panel size,
     /// regularizing the Biot-Savart 1/distance singularity.
     pub core_radius_factor: f64,
+    /// Overrides the reference area/chord/span this build would otherwise
+    /// compute fresh from `mesh` via `ReferenceQuantities::from_mesh`.
+    ///
+    /// Needed by the bank-sweep animation: each frame's mesh is a ROTATED
+    /// copy of the original, and `from_mesh`'s "planform area" (panel area
+    /// weighted by `|normal.y|`) and "span" (bbox Z-extent) are only
+    /// meaningful for a wing in its normal orientation -- computed fresh on
+    /// a rotated mesh, they silently change (a wing banked 90 degrees
+    /// presents almost no `|normal.y|` at all), corrupting the very
+    /// denominator CL/CD/Cm are normalized by and making coefficients
+    /// incomparable across bank angles. `None` (the default) preserves the
+    /// normal "compute fresh from this mesh" behavior for every other caller.
+    pub fixed_reference: Option<ReferenceQuantities>,
 }
 
 impl Default for PanelConfig {
     fn default() -> Self {
-        Self { n_wake_strips: 20, wake_length_factor: 25.0, core_radius_factor: 1e-3 }
+        Self { n_wake_strips: 20, wake_length_factor: 25.0, core_radius_factor: 1e-3, fixed_reference: None }
     }
 }
 
@@ -127,7 +140,7 @@ impl PanelModel {
 
         let te_strips = detect_trailing_edge_strips(mesh, config.n_wake_strips);
         let mean_scale = geoms.iter().map(|g| g.scale()).sum::<f64>() / geoms.len() as f64;
-        let reference = ReferenceQuantities::from_mesh(mesh, &panels);
+        let reference = config.fixed_reference.unwrap_or_else(|| ReferenceQuantities::from_mesh(mesh, &panels));
         let wake_cfg = WakeConfig {
             wake_length_m: config.wake_length_factor * reference.span.max(1e-6),
             core_radius_m: config.core_radius_factor * mean_scale,
@@ -320,5 +333,52 @@ mod tests {
         assert!((model.reference.span - 1.0).abs() < 1e-3);
         assert!((model.reference.chord - 0.2).abs() < 1e-3);
         assert!(model.panels.len() > 50);
+    }
+
+    /// Demonstrates the bug `PanelConfig::fixed_reference` exists to fix:
+    /// `ReferenceQuantities::from_mesh`'s "planform area" (panel area
+    /// weighted by `|normal.y|`) and "span" (bbox Z-extent) are only
+    /// meaningful for a wing in its normal orientation -- computed fresh on
+    /// a mesh rotated 90 degrees around the flow axis (a wing standing on
+    /// its edge, presenting almost no `|normal.y|`), they come out
+    /// completely different, which would silently corrupt CL/CD/Cm's
+    /// normalization if a bank-sweep frame's `PanelModel` recomputed them
+    /// from its own rotated geometry instead of reusing the original mesh's.
+    #[test]
+    fn reference_quantities_change_drastically_under_rotation_without_the_fix() {
+        let mesh = symmetric_diamond_wing(1.0, 0.2, 0.02, 10);
+        let rotated = mesh.rotated_around_x(90.0);
+
+        let unrotated_model = PanelModel::build(&mesh, PanelConfig::default()).expect("builds");
+        let rotated_model = PanelModel::build(&rotated, PanelConfig::default()).expect("builds");
+
+        // If this ever stops being true, `ReferenceQuantities::from_mesh` no
+        // longer has the bug `fixed_reference` works around, and this test
+        // (not the fix) should be reconsidered.
+        assert!(
+            (unrotated_model.reference.area - rotated_model.reference.area).abs() > unrotated_model.reference.area * 0.5,
+            "expected a 90-degree bank to drastically change the naively-recomputed reference area: {} vs {}",
+            unrotated_model.reference.area,
+            rotated_model.reference.area
+        );
+    }
+
+    /// The actual fix: building with `fixed_reference` set gives the EXACT
+    /// SAME reference quantities regardless of the mesh's rotation, so
+    /// CL/CD/Cm stay comparable across every frame of a bank-sweep animation.
+    #[test]
+    fn fixed_reference_survives_rotation_unchanged() {
+        let mesh = symmetric_diamond_wing(1.0, 0.2, 0.02, 10);
+        let base_reference = PanelModel::build(&mesh, PanelConfig::default()).expect("builds").reference;
+
+        for degrees in [15.0, 45.0, 90.0, 135.0] {
+            let rotated = mesh.rotated_around_x(degrees);
+            let config = PanelConfig { fixed_reference: Some(base_reference), ..PanelConfig::default() };
+            let model = PanelModel::build(&rotated, config).expect("builds");
+
+            assert_eq!(model.reference.area, base_reference.area, "area should be pinned at {degrees} degrees bank");
+            assert_eq!(model.reference.chord, base_reference.chord, "chord should be pinned at {degrees} degrees bank");
+            assert_eq!(model.reference.span, base_reference.span, "span should be pinned at {degrees} degrees bank");
+        }
     }
 }

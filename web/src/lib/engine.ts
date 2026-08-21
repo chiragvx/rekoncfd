@@ -12,11 +12,13 @@ import { RekonSocket, wsUrlForCurrentHost } from "@/net/ws";
 import {
   decodeFrame,
   decodeMeshGeometry,
+  decodeMultiBankSweepFrame,
   decodePanelResult,
   decodePolarCurve,
   decodeSolveProgress,
   decodeSolveResult,
   decodeTrimResult,
+  encodeMultiBankSweepRequest,
   encodePolarRequest,
   encodeSliderUpdate,
   encodeSolveFlowFieldRequest,
@@ -26,6 +28,7 @@ import {
   type DecodedPanelResult,
   type DecodedSolveProgress,
   type DecodedTrimResult,
+  type MultiBankSweepFrame,
   type PolarPoint,
 } from "@/net/protocol";
 
@@ -106,6 +109,7 @@ type EventMap = {
   panelResult: DecodedPanelResult;
   trimResult: DecodedTrimResult;
   polarCurve: PolarPoint[];
+  bankSweepFrame: MultiBankSweepFrame;
   solveProgress: DecodedSolveProgress;
   solveStarted: void;
   solveDone: number; // elapsed ms
@@ -134,6 +138,7 @@ class RekonEngine {
   private listeners = new Map<keyof EventMap, Set<(payload: never) => void>>();
 
   private rs: RekonScene | null = null;
+  private bankGroup: THREE.Group | null = null;
   private stlViewer: StlViewer | null = null;
   private windTunnel: WindTunnel | null = null;
   private streamlines: Streamlines | null = null;
@@ -151,16 +156,42 @@ class RekonEngine {
    * the other. */
   private lastSliderValues: SliderValues = { alphaDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 } };
 
-  /** Idempotent: the viewport container is created once (by whichever
-   * component mounts first / survives StrictMode's double-invoke in dev),
-   * and re-mounting into a new DOM node is a no-op since the scene already
-   * exists and owns its own renderer canvas. */
+  /** The scene/socket/etc. are created ONCE (by whichever component mounts
+   * first / survives StrictMode's double-invoke in dev) and never rebuilt --
+   * but `container` itself is NOT persistent: client-side routing away from
+   * `/tool` and back tears down and recreates `Viewport`'s `<div>` every
+   * time, so every call after the first must still re-parent the existing
+   * canvas into whatever container this particular call was handed (see
+   * `RekonScene.attachTo`'s doc comment) rather than silently no-op'ing --
+   * that silent no-op used to be correct back when this was the app's one
+   * always-mounted page, before routing existed. */
   mount(container: HTMLElement) {
-    if (this.rs) return;
+    if (this.rs) {
+      this.rs.attachTo(container);
+      return;
+    }
 
     const rs = createScene(container);
     this.rs = rs;
-    this.stlViewer = new StlViewer(rs.scene);
+
+    // The bank-sweep solve rotates the MESH while holding the freestream
+    // direction fixed -- exactly like a real wind tunnel, where the flow
+    // direction never changes and the test article is mounted at an angle
+    // within it. So the resulting velocity field (streamlines/vorticity/
+    // contour) is already expressed in that same fixed lab frame; it needs
+    // NO extra rotation to display correctly. Only the rendered MESH needs
+    // one, since (for bandwidth) each frame resends just its Cp, not its
+    // rotated vertex positions -- `bankGroup` exists purely to visually
+    // match the mesh's rendering to the orientation it was actually solved
+    // at. Putting the flow-field visualizations in this same rotating group
+    // was the bug: it made the whole scene spin together as one rigid
+    // assembly, showing "the same relative airflow, just rotated" instead
+    // of a FIXED airflow being disrupted differently by a banking model.
+    const bankGroup = new THREE.Group();
+    rs.scene.add(bankGroup);
+    this.bankGroup = bankGroup;
+
+    this.stlViewer = new StlViewer(bankGroup);
     this.windTunnel = new WindTunnel(rs.scene);
     this.streamlines = new Streamlines(rs.scene);
     this.vorticityField = new VorticityField(rs.scene);
@@ -172,12 +203,16 @@ class RekonEngine {
     socket.onStatus((status) => this.emit("wsStatus", status));
 
     socket.on(Tag.MeshGeometry, (buffer) => {
+      // A fresh mesh should never inherit whatever bank angle a previous
+      // sweep animation left the group rotated to.
+      this.bankGroup!.rotation.x = 0;
       const decoded = decodeMeshGeometry(buffer);
       const box = this.stlViewer!.setGeometry(decoded);
       this.focusCameraOn(box);
       this.emit("meshGeometry", decoded);
     });
     socket.on(Tag.MeshCleared, () => {
+      this.bankGroup!.rotation.x = 0;
       this.stlViewer!.dispose();
       this.streamlines!.dispose();
       this.vorticityField!.dispose();
@@ -195,6 +230,9 @@ class RekonEngine {
     });
     socket.on(Tag.PolarCurve, (buffer) => {
       this.emit("polarCurve", decodePolarCurve(decodeFrame(buffer)));
+    });
+    socket.on(Tag.MultiBankSweepFrame, (buffer) => {
+      this.emit("bankSweepFrame", decodeMultiBankSweepFrame(decodeFrame(buffer)));
     });
     socket.on(Tag.SolveProgress, (buffer) => {
       this.emit("solveProgress", decodeSolveProgress(decodeFrame(buffer)));
@@ -281,12 +319,57 @@ class RekonEngine {
     this.socket?.send(encodePolarRequest(alphaMinDeg, alphaMaxDeg, nPoints));
   }
 
+  /** Kicks off a "banked flight" animation: `nFrames` discrete frames
+   * sweeping alpha and bank together, EACH a real re-solve (fresh panel
+   * factorization + a full LBM run) on the mesh actually rotated to that
+   * frame's bank angle. Genuinely slow -- frames stream back one at a time,
+   * possibly minutes apart for the whole batch -- see `bankSweepFrame`. */
+  requestBankSweep(alphaMinDeg: number, alphaMaxDeg: number, bankMinDeg: number, bankMaxDeg: number, nFrames: number) {
+    this.socket?.send(encodeMultiBankSweepRequest(alphaMinDeg, alphaMaxDeg, bankMinDeg, bankMaxDeg, nFrames));
+  }
+
+  /** Applies one already-arrived bank-sweep frame to the viewport: recolors
+   * the surface from that frame's REAL solved (LBM-derived) Cp, feeds its
+   * REAL velocity field into streamlines/vorticity/contour (rendered in the
+   * FIXED lab frame -- see `mount`'s comment, this is the flow a stationary
+   * tunnel actually produces around the model at this bank angle, not
+   * something that should spin with it), snaps the wind-tunnel wireframe to
+   * that frame's actual solve domain, and rolls ONLY the rendered model to
+   * `frame.bankDeg` to match the orientation it was actually solved at.
+   * Everything here is real solved data for that specific rotated geometry,
+   * not a cosmetic overlay. Also re-emits a `panelResult`-shaped event (from
+   * the frame's panel-method coefficients) so `OutputBar` shows live
+   * CL/CDi/Cm without its own separate animation-aware subscription. */
+  applyBankSweepFrame(frame: MultiBankSweepFrame) {
+    this.stlViewer?.setPressure(frame.surfaceCp);
+    if (this.bankGroup) this.bankGroup.rotation.x = THREE.MathUtils.degToRad(frame.bankDeg);
+
+    const sampler = new FieldSampler(frame);
+    this.streamlines?.setField(sampler);
+    this.contourPlane?.setField(sampler);
+    this.vorticityField?.setField(frame);
+    this.windTunnel?.setBounds(new THREE.Vector3(...frame.domainMin), new THREE.Vector3(...frame.domainMax));
+
+    this.emit("panelResult", { cl: frame.cl, cdInduced: frame.cdInduced, cm: frame.cm, cp: frame.surfaceCp });
+  }
+
   /** Solves at the currently-displayed flight condition (the Flight
    * Condition panel's last sent alpha/V) unless overridden. */
   requestSolve(alphaDeg = this.lastSliderValues.alphaDeg, vInf = this.lastSliderValues.vInf) {
     this.solveStartedAt = performance.now();
     this.emit("solveStarted", undefined);
     this.socket?.send(encodeSolveFlowFieldRequest(alphaDeg, vInf));
+  }
+
+  /** Ground grid and wind-tunnel wireframe are scene/environment chrome, not
+   * flow-field visualization -- kept separate from `VizState`/`applyVizState`
+   * on purpose, since they're meaningful even with no mesh or solve loaded. */
+  setGroundVisible(visible: boolean) {
+    if (this.rs) this.rs.grid.visible = visible;
+  }
+
+  setWallsVisible(visible: boolean) {
+    this.windTunnel?.setVisible(visible);
   }
 
   applyVizState(state: VizState) {

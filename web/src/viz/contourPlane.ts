@@ -15,14 +15,14 @@ const TEX_RES = 256;
  * Built entirely client-side from the velocity grid the solve already sends,
  * so no protocol or server change is involved. */
 export class ContourPlane {
-  private readonly scene: THREE.Scene;
+  private readonly scene: THREE.Object3D;
   private mesh: THREE.Mesh | null = null;
   private sampler: FieldSampler | null = null;
   private visible = false;
   private axis: SliceAxis = SliceAxis.Z;
   private position01 = 0.5;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Object3D) {
     this.scene = scene;
   }
 

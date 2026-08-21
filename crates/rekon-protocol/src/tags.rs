@@ -35,3 +35,20 @@ pub const SOLVE_FLOW_FIELD_REQUEST: u32 = 0x30;
 pub const SOLVE_PROGRESS: u32 = 0x31;
 pub const SOLVE_RESULT: u32 = 0x32;
 pub const SOLVE_CANCELLED_OR_ERROR: u32 = 0x33;
+
+/// Client -> server: run a "banked flight" animation -- N discrete frames
+/// along a combined alpha+bank sweep, each one a REAL re-solve (fresh
+/// panel-method factorization AND a full LBM run) on the mesh rotated to
+/// that frame's bank angle, not a cosmetic render-time rotation. This is
+/// genuinely expensive (a full LBM solve per frame) by design — see
+/// `ws::bank_sweep`'s module doc comment. Payload:
+/// `[alpha_min_deg, alpha_max_deg, bank_min_deg, bank_max_deg, n_frames]`.
+pub const MULTI_BANK_SWEEP_REQUEST: u32 = 0x40;
+/// Server -> client, streamed once per completed frame (frames may arrive
+/// well apart in time — each is a full LBM solve). Payload:
+/// `[frame_index, n_frames, alpha_deg, bank_deg, cl, cd_induced, cm,
+/// n_vertices, vel_nx, vel_ny, vel_nz, domain_min(3), domain_max(3),
+/// surface_cp[0..n_vertices], velocity[0..3*vel_nx*vel_ny*vel_nz]]`.
+/// `SOLVE_PROGRESS` frames (same tag/shape as the single on-demand solve)
+/// are interleaved during each frame's LBM run.
+pub const MULTI_BANK_SWEEP_FRAME: u32 = 0x41;
