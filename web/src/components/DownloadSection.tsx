@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { Apple, Check, Copy, Download, LoaderCircle, Monitor } from "lucide-react";
+import { Apple, Check, Copy, Download, Monitor } from "lucide-react";
 
 import { downloadUrlFor, fetchLatestRelease, macInstallCommand, WINDOWS_ASSET, type LatestRelease } from "@/lib/release";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
 type ReleaseState = { status: "loading" } | { status: "ready"; release: LatestRelease } | { status: "unavailable" };
 
@@ -69,24 +68,17 @@ export function DownloadSection() {
       </div>
 
       <div className="mx-auto grid max-w-3xl grid-cols-1 gap-4 px-6 pb-24 sm:grid-cols-2">
-        <Card className="gap-4">
+        <Card className="gap-3">
           <CardHeader>
-            <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
-              <Monitor className="size-5" />
+            <div className="flex items-center justify-between">
+              <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
+                <Monitor className="size-5" />
+              </div>
+              <VersionBadge release={release} />
             </div>
-            <CardTitle className="mt-3 text-lg tracking-tight">Windows Desktop App</CardTitle>
-            <CardDescription>Standalone .exe — no install, no dependencies, runs at 127.0.0.1 in your browser.</CardDescription>
+            <CardTitle className="mt-3 text-lg tracking-tight">Windows</CardTitle>
+            <CardDescription>Standalone .exe, no install — runs at 127.0.0.1 in your browser.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <ReleaseStatus release={release} />
-
-            <Separator />
-
-            <div className="text-muted-foreground flex items-center gap-2 text-xs">
-              <span className="bg-success size-1.5 shrink-0 rounded-full" />
-              Auto-updates in the background — download once, stay current.
-            </div>
-          </CardContent>
           <CardFooter>
             <Button asChild={release.status === "ready"} disabled={release.status !== "ready"} size="lg" className="w-full">
               {release.status === "ready" ? (
@@ -102,26 +94,18 @@ export function DownloadSection() {
           </CardFooter>
         </Card>
 
-        <Card className="gap-4">
+        <Card className="gap-3">
           <CardHeader>
-            <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
-              <Apple className="size-5" />
+            <div className="flex items-center justify-between">
+              <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
+                <Apple className="size-5" />
+              </div>
+              <VersionBadge release={release} />
             </div>
-            <CardTitle className="mt-3 text-lg tracking-tight">macOS Desktop App</CardTitle>
-            <CardDescription>Apple Silicon, one-line Terminal install — run the same solver locally.</CardDescription>
+            <CardTitle className="mt-3 text-lg tracking-tight">macOS</CardTitle>
+            <CardDescription>Apple Silicon, installs via Terminal — no Gatekeeper warning.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <ReleaseStatus release={release} />
-
-            <Separator />
-
-            <div className="text-muted-foreground flex items-center gap-2 text-xs">
-              <span className="bg-success size-1.5 shrink-0 rounded-full" />
-              No Gatekeeper warning — installs straight from Terminal.
-            </div>
-          </CardContent>
           <CardFooter className="flex flex-col items-stretch gap-2">
-            <span className="text-muted-foreground text-xs">Paste into Terminal:</span>
             <MacInstallCommand />
           </CardFooter>
         </Card>
@@ -130,25 +114,11 @@ export function DownloadSection() {
   );
 }
 
-function ReleaseStatus({ release }: { release: ReleaseState }) {
-  if (release.status === "loading") {
-    return (
-      <div className="text-muted-foreground flex items-center gap-2 text-sm">
-        <LoaderCircle className="size-4 animate-spin" /> Checking latest release…
-      </div>
-    );
-  }
-  if (release.status === "ready") {
-    return (
-      <div className="font-data text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <Badge variant="secondary" className="font-data">
-          v{release.release.version}
-        </Badge>
-        <span>published {new Date(release.release.publishedAt).toLocaleDateString()}</span>
-      </div>
-    );
-  }
+function VersionBadge({ release }: { release: ReleaseState }) {
+  if (release.status !== "ready") return null;
   return (
-    <p className="text-muted-foreground text-sm">No release is published yet — check back soon, or build from source in the meantime.</p>
+    <Badge variant="secondary" className="font-data">
+      v{release.release.version}
+    </Badge>
   );
 }

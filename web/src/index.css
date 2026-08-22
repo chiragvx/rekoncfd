@@ -163,4 +163,19 @@
       0 20px 36px -16px hsl(var(--shadow-color) / 0.8),
       0 0 0 1px hsl(var(--primary) / 0.12);
   }
+
+  /* A thin "blueprint"-style divider (a tick-marked rule, like a dimension
+   * line on an engineering drawing) used between landing-page sections
+   * instead of a plain border -- a recurring, quiet nod to the instrument/
+   * drafting identity the app's own UI already has, without adding motion. */
+  .rule-blueprint {
+    height: 1px;
+    background-image: repeating-linear-gradient(
+      to right,
+      hsl(var(--border)) 0,
+      hsl(var(--border)) 1px,
+      transparent 1px,
+      transparent 14px
+    );
+  }
 }
