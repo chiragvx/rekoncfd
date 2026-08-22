@@ -84,8 +84,8 @@ const STEPS = [
 ];
 
 const STATS = [
-  { icon: Globe, label: "Runs offline", detail: "Desktop app solves entirely on your own machine, no account, no upload." },
-  { icon: Download, label: "Self-updating", detail: "One .exe, no installer — it checks GitHub Releases and updates itself." },
+  { icon: Globe, label: "Runs offline", detail: "Desktop app solves entirely on your own machine, no upload." },
+  { icon: Download, label: "Self-updating", detail: "Windows or macOS — it checks GitHub Releases on launch and updates itself." },
   { icon: MonitorSmartphone, label: "Browser or desktop", detail: "Preview the UI on the web, or run the full solver locally." },
 ];
 
