@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ArrowRight,
@@ -20,6 +20,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { RekonMark } from "@/components/RekonMark";
 import { ProductScreenshots } from "@/components/ProductScreenshots";
+import { HeroFlowField } from "@/components/HeroFlowField";
 import { FaqSection, FAQS } from "@/components/FaqSection";
 import { DownloadSection } from "@/components/DownloadSection";
 import { Button } from "@/components/ui/button";
@@ -89,6 +90,43 @@ const STATS = [
   { icon: MonitorSmartphone, label: "Browser or desktop", detail: "Preview the UI on the web, or run the full solver locally." },
 ];
 
+/** A small ticking CL/CDi/Cm readout, styled like the real Tool's own
+ * OutputBar -- purely decorative on the hero (there's no actual solve behind
+ * it), but the numbers jitter around a genuine trimmed-cruise range rather
+ * than being arbitrary, so it reads as "instrument" rather than "fake UI." */
+function HeroReadout() {
+  const [values, setValues] = useState({ cl: 0.62, cdi: 0.021, cm: 0.04 });
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setValues({
+        cl: 0.62 + (Math.random() - 0.5) * 0.03,
+        cdi: 0.021 + (Math.random() - 0.5) * 0.002,
+        cm: 0.04 + (Math.random() - 0.5) * 0.01,
+      });
+    }, 1400);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="border-border/60 bg-background/70 font-data flex items-center gap-4 rounded-lg border px-3 py-2 text-xs backdrop-blur-sm">
+      <span className="flex items-center gap-1.5">
+        <span className="bg-success size-1.5 rounded-full" />
+        <span className="text-muted-foreground tracking-wide">LIVE</span>
+      </span>
+      <span className="text-muted-foreground">
+        CL <span className="text-foreground tabular-nums">{values.cl.toFixed(3)}</span>
+      </span>
+      <span className="text-muted-foreground">
+        CDi <span className="text-foreground tabular-nums">{values.cdi.toFixed(4)}</span>
+      </span>
+      <span className="text-muted-foreground">
+        Cm <span className="text-foreground tabular-nums">{values.cm.toFixed(3)}</span>
+      </span>
+    </div>
+  );
+}
+
 const FAQ_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
@@ -121,17 +159,7 @@ export function LandingPage() {
       <SiteHeader />
 
       <section className="glow-primary relative overflow-hidden">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.05]"
-          style={{
-            backgroundImage:
-              "linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)",
-            backgroundSize: "56px 56px",
-            maskImage: "radial-gradient(ellipse 60% 55% at 50% 0%, black, transparent)",
-          }}
-        />
-
-        <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-7 px-6 pt-28 pb-20 text-center">
+        <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-6 px-6 pt-24 pb-4 text-center">
           <RekonMark className="text-primary size-12 drop-shadow-[0_0_24px_hsl(var(--primary)/0.45)]" />
           <span className="border-border/80 text-muted-foreground font-data flex items-center gap-2 rounded-full border px-3 py-1 text-[0.7rem] tracking-[0.15em] uppercase">
             <span className="bg-success size-1.5 rounded-full" />
@@ -146,7 +174,7 @@ export function LandingPage() {
             Rekon combines a live 3D panel-method solver with an on-demand lattice-Boltzmann flow field, so a
             tapered, swept flying wing gets real lift, drag, trim, and stability numbers — before you cut foam.
           </p>
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
             <Button asChild size="lg">
               <Link to="/tool">
                 Open the Tool <ArrowRight />
@@ -156,8 +184,23 @@ export function LandingPage() {
               <Link to="/airfoils">Generate an Airfoil</Link>
             </Button>
           </div>
+        </div>
 
-          <div className="text-muted-foreground/70 mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+        <div className="relative mx-auto mt-10 max-w-5xl px-6 pb-16">
+          <div className="border-border/60 bg-card surface-elevated relative h-[280px] overflow-hidden rounded-[32px] border sm:h-[360px]">
+            <HeroFlowField className="absolute inset-0 h-full w-full" />
+            <div className="from-background/80 pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b to-transparent" />
+            <div className="from-background/80 pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t to-transparent" />
+
+            <div className="text-muted-foreground/80 font-data absolute top-4 left-4 text-[0.65rem] tracking-[0.15em] uppercase">
+              2D potential flow, U&#8734; &rarr;
+            </div>
+            <div className="absolute bottom-4 left-4">
+              <HeroReadout />
+            </div>
+          </div>
+
+          <div className="text-muted-foreground/70 mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
             {SPECS.map((s) => (
               <span key={s} className="font-data text-[0.7rem] tracking-wide">
                 {s}
