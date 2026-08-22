@@ -153,6 +153,12 @@ class RekonEngine {
   private vorticityField: VorticityField | null = null;
   private contourPlane: ContourPlane | null = null;
   private socket: RekonSocket | null = null;
+  /** Mirrors the latest `wsStatus` emission so a component mounting AFTER
+   * that status was already reached (e.g. re-visiting `/tool` once the
+   * initial connect/fail has already resolved) can read it immediately
+   * instead of waiting for a future event that may never fire again --
+   * `RekonSocket` retries forever but only emits on actual state changes. */
+  private wsStatus: "connecting" | "open" | "closed" = "connecting";
 
   private vizState: VizState = { ...DEFAULT_VIZ_STATE };
   private solveStartedAt = 0;
@@ -208,7 +214,10 @@ class RekonEngine {
 
     const socket = new RekonSocket(wsUrlForCurrentHost("/ws"));
     this.socket = socket;
-    socket.onStatus((status) => this.emit("wsStatus", status));
+    socket.onStatus((status) => {
+      this.wsStatus = status;
+      this.emit("wsStatus", status);
+    });
 
     socket.on(Tag.MeshGeometry, (buffer) => {
       // A fresh mesh should never inherit whatever bank angle a previous
@@ -320,6 +329,10 @@ class RekonEngine {
 
   getLastSliderValues(): SliderValues {
     return this.lastSliderValues;
+  }
+
+  getWsStatus(): "connecting" | "open" | "closed" {
+    return this.wsStatus;
   }
 
   /** Rotates the RENDERED model to `deg` instantly, client-side only -- no

@@ -5,6 +5,7 @@ import type { ImportSummary } from "@/lib/engine";
 import { Viewport } from "@/components/Viewport";
 import { ToolNav } from "@/components/ToolNav";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { DownloadPromptModal } from "@/components/DownloadPromptModal";
 import { ViewportToolbar } from "@/components/ViewportToolbar";
 import { RotateControl } from "@/components/RotateControl";
 import { OutputBar } from "@/components/OutputBar";
@@ -50,6 +51,7 @@ export function ToolPage() {
     <div className="fixed inset-0 flex flex-col">
       <ToolNav />
       <UpdateBanner />
+      <DownloadPromptModal />
 
       <div className="flex flex-1 gap-4 overflow-hidden px-4 pb-4 pt-[4.5rem]">
         <Sidebar>
