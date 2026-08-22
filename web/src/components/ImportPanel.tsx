@@ -107,7 +107,7 @@ export function ImportPanel({ onMeshSummaryChange }: { onMeshSummaryChange: (sum
   }
 
   return (
-    <Card className="w-full gap-3">
+    <Card id="coach-import" className="w-full gap-3">
       <CardHeader>
         <CardTitle>Import</CardTitle>
       </CardHeader>

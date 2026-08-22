@@ -36,7 +36,7 @@ export function SolvePanel() {
   const pct = progress && progress.maxSteps > 0 ? Math.min(100, (progress.step / progress.maxSteps) * 100) : 0;
 
   return (
-    <Card className="w-full gap-3">
+    <Card id="coach-solve" className="w-full gap-3">
       <CardHeader>
         <CardTitle>Flow Solve</CardTitle>
       </CardHeader>

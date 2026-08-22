@@ -62,7 +62,7 @@ export function FlightConditionPanel({ chordEstimateM }: { chordEstimateM: numbe
   }
 
   return (
-    <Card className="w-full gap-3">
+    <Card id="coach-flight-condition" className="w-full gap-3">
       <CardHeader>
         <CardTitle>Flight Condition</CardTitle>
       </CardHeader>
