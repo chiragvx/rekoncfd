@@ -10,7 +10,7 @@ import { AccountControl } from "@/components/AccountControl";
 const NAV_LINKS = [
   { to: "/explore", label: "Explore Models" },
   { to: "/airfoils", label: "Airfoil Generator" },
-  { to: "/download", label: "Download" },
+  { to: "/#download", label: "Download" },
 ];
 
 const AXIS_LEGEND = "X→flow, Y↑, Z=span";

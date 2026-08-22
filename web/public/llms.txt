@@ -16,9 +16,8 @@ Rekon is built for people designing RC flying-wing aircraft who want real lift/d
 
 ## Pages
 
-- Homepage: https://rekoncfd.vercel.app/ -- product overview, screenshots, FAQ
+- Homepage: https://rekoncfd.vercel.app/ -- product overview, screenshots, FAQ, and the Windows desktop app download (at the #download section)
 - Tool: https://rekoncfd.vercel.app/tool -- the live 3D solver (needs the downloaded desktop app to actually compute anything)
 - Explore Models: https://rekoncfd.vercel.app/explore -- a gallery of ready-to-fly sample planforms
 - Airfoil Generator: https://rekoncfd.vercel.app/airfoils -- NACA 4/5-digit section + wing generator
-- Download: https://rekoncfd.vercel.app/download -- the Windows desktop app download
 - Source code and issue tracker: https://github.com/chiragvx/rekoncfd

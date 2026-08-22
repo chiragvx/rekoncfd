@@ -7,7 +7,7 @@ import { RekonMark } from "@/components/RekonMark";
 const NAV_LINKS = [
   { to: "/explore", label: "Explore Models" },
   { to: "/airfoils", label: "Airfoil Generator" },
-  { to: "/download", label: "Download" },
+  { to: "/#download", label: "Download" },
 ];
 
 /** Persistent top nav for the marketing/browsing pages (Landing, Explore,
