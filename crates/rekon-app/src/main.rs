@@ -2,6 +2,7 @@ mod http;
 mod pipeline;
 mod samples;
 mod state;
+mod tray;
 mod updater;
 mod ws;
 
@@ -14,8 +15,11 @@ use state::AppState;
 const ADDR: &str = "127.0.0.1:3000";
 const MAX_UPLOAD_BYTES: usize = 200 * 1024 * 1024;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+/// Plain (non-async) `main`: the tray icon's native event loop must own this
+/// thread (see `tray::run`'s doc comment) for as long as the app runs, so the
+/// Axum server -- and the Tokio runtime it needs -- moves onto its own
+/// dedicated thread instead of `#[tokio::main]` claiming this one.
+fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
@@ -25,6 +29,23 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    std::thread::spawn(|| {
+        let runtime = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(err) => {
+                tracing::error!(%err, "failed to start the server's Tokio runtime");
+                return;
+            }
+        };
+        if let Err(err) = runtime.block_on(serve()) {
+            tracing::error!(%err, "server task exited with an error");
+        }
+    });
+
+    tray::run(ADDR);
+}
+
+async fn serve() -> anyhow::Result<()> {
     let state = AppState::new();
 
     let app = Router::new()
