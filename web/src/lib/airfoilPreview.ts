@@ -43,6 +43,37 @@ function naca5Camber(designCl: number, code: 1 | 2 | 3 | 4 | 5, x: number): [num
 
 export type PreviewAirfoil = { kind: "naca4"; params: Naca4Params } | { kind: "naca5"; params: Naca5Params };
 
+export type ParsedDesignation =
+  | { family: "naca4"; camber: number; camberPos: number; thickness: number }
+  | { family: "naca5"; l: number; p: 1 | 2 | 3 | 4 | 5; thickness: number };
+
+/** Parses a bare NACA digit string ("2412", "23012" -- no "NACA" prefix) the
+ * same way `rekon_geometry::naca::Airfoil::parse_naca` does, for the
+ * designation text input's live validation. Returns `null` for anything the
+ * generator can't build (wrong length, non-digits, reflexed 5-digit codes,
+ * unsupported camber-position codes, or an out-of-range thickness) rather
+ * than guessing -- same "reject, don't guess" rule the Rust side follows. */
+export function parseNacaDesignation(input: string): ParsedDesignation | null {
+  const s = input.trim();
+  if (s.length === 0 || !/^\d+$/.test(s)) return null;
+  const digits = s.split("").map(Number);
+
+  if (digits.length === 4) {
+    const thickness = digits[2] * 10 + digits[3];
+    if (!(thickness > 0 && thickness < 40)) return null;
+    return { family: "naca4", camber: digits[0], camberPos: digits[1], thickness };
+  }
+  if (digits.length === 5) {
+    const [l, p, q] = digits;
+    if (q !== 0) return null;
+    if (!(p >= 1 && p <= 5)) return null;
+    const thickness = digits[3] * 10 + digits[4];
+    if (!(thickness > 0 && thickness < 40)) return null;
+    return { family: "naca5", l, p: p as 1 | 2 | 3 | 4 | 5, thickness };
+  }
+  return null;
+}
+
 /** Returns [upper, lower] points (each `[x, y]`, unit chord) sampled with
  * cosine chordwise clustering — matching the server's actual construction. */
 export function sampleAirfoil(airfoil: PreviewAirfoil, n = 80): { upper: [number, number][]; lower: [number, number][] } {

@@ -1,12 +1,15 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { LoaderCircle, Sparkles } from "lucide-react";
+import { Download, LoaderCircle, Sparkles, SquareStack } from "lucide-react";
 
 import { engine } from "@/lib/engine";
-import type { PreviewAirfoil } from "@/lib/airfoilPreview";
+import { parseNacaDesignation, type PreviewAirfoil } from "@/lib/airfoilPreview";
+import { AIRFOIL_LIBRARY, type LibraryEntry } from "@/lib/airfoilLibrary";
+import { buildDat, buildCsv, buildSvg, downloadTextFile, exportPng, DAT_FORMATS, DAT_FORMAT_LABELS, type DatFormat } from "@/lib/airfoilExport";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { AirfoilPreview } from "@/components/AirfoilPreview";
+import { WingPreview3D } from "@/components/WingPreview3D";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -64,6 +67,11 @@ export function AirfoilGeneratorPage() {
   const [dihedralDeg, setDihedralDeg] = useState(3);
   const [washoutDeg, setWashoutDeg] = useState(-2);
 
+  const [previewMode, setPreviewMode] = useState<"2d" | "3d">("2d");
+  const [renderMode, setRenderMode] = useState<"wireframe" | "solid">("solid");
+  const [datFormat, setDatFormat] = useState<DatFormat>("surfaces");
+  const [libraryTab, setLibraryTab] = useState(AIRFOIL_LIBRARY[0].key);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +85,56 @@ export function AirfoilGeneratorPage() {
     return `${n4Camber}${p}${String(n4Thickness).padStart(2, "0")}`;
   }, [family, n4Camber, n4CamberPos, n4Thickness, n5L, n5P, n5Thickness]);
 
+  // Editable mirror of `designation` -- see the effect below for how typing
+  // here and moving a slider stay in sync without fighting each other.
+  const [designationInput, setDesignationInput] = useState(designation);
+  const [designationError, setDesignationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDesignationInput(designation);
+    setDesignationError(null);
+  }, [designation]);
+
+  function handleDesignationChange(raw: string) {
+    const digitsOnly = raw.replace(/[^0-9]/g, "").slice(0, 5);
+    setDesignationInput(digitsOnly);
+    if (digitsOnly.length !== 4 && digitsOnly.length !== 5) {
+      setDesignationError(digitsOnly.length === 0 ? null : "Enter 4 or 5 digits");
+      return;
+    }
+    const parsed = parseNacaDesignation(digitsOnly);
+    if (!parsed) {
+      setDesignationError("Not a valid NACA 4/5-digit code");
+      return;
+    }
+    setDesignationError(null);
+    if (parsed.family === "naca4") {
+      setFamily("naca4");
+      setN4Camber(parsed.camber);
+      setN4CamberPos(Math.max(1, parsed.camberPos));
+      setN4Thickness(parsed.thickness);
+    } else {
+      setFamily("naca5");
+      setN5L(parsed.l);
+      setN5P(parsed.p);
+      setN5Thickness(parsed.thickness);
+    }
+  }
+
+  function loadPreset(entry: LibraryEntry) {
+    if (entry.airfoil.kind === "naca4") {
+      setFamily("naca4");
+      setN4Camber(Math.round(entry.airfoil.params.camber * 100));
+      setN4CamberPos(Math.max(1, Math.round(entry.airfoil.params.camberPos * 10)));
+      setN4Thickness(Math.round(entry.airfoil.params.thickness * 100));
+    } else {
+      setFamily("naca5");
+      setN5L(Math.round(entry.airfoil.params.designCl / 0.15));
+      setN5P(entry.airfoil.params.camberPosCode);
+      setN5Thickness(Math.round(entry.airfoil.params.thickness * 100));
+    }
+  }
+
   const previewAirfoil: PreviewAirfoil = useMemo(() => {
     if (family === "naca5") {
       return {
@@ -87,6 +145,11 @@ export function AirfoilGeneratorPage() {
     const p = n4Camber === 0 ? 0 : n4CamberPos / 10;
     return { kind: "naca4", params: { camber: n4Camber / 100, camberPos: p, thickness: n4Thickness / 100 } };
   }, [family, n4Camber, n4CamberPos, n4Thickness, n5L, n5P, n5Thickness]);
+
+  const wingPreviewParams = useMemo(
+    () => ({ airfoil: previewAirfoil, spanM, rootChordM, tipChordM, sweepDeg, dihedralDeg, washoutDeg }),
+    [previewAirfoil, spanM, rootChordM, tipChordM, sweepDeg, dihedralDeg, washoutDeg],
+  );
 
   async function generate() {
     setBusy(true);
@@ -110,11 +173,26 @@ export function AirfoilGeneratorPage() {
     }
   }
 
+  function handleExportDat() {
+    downloadTextFile(`naca-${designation}.dat`, buildDat(designation, previewAirfoil, datFormat));
+  }
+  function handleExportCsv() {
+    downloadTextFile(`naca-${designation}.csv`, buildCsv(designation, previewAirfoil), "text/csv");
+  }
+  function handleExportSvg() {
+    downloadTextFile(`naca-${designation}.svg`, buildSvg(designation, previewAirfoil), "image/svg+xml");
+  }
+  function handleExportPng() {
+    void exportPng(designation, previewAirfoil, "#6fb3ff");
+  }
+
+  const activeCategory = AIRFOIL_LIBRARY.find((c) => c.key === libraryTab) ?? AIRFOIL_LIBRARY[0];
+
   return (
     <div className="bg-background min-h-screen">
       <SiteHeader />
 
-      <section className="mx-auto max-w-5xl px-6 py-20">
+      <section className="mx-auto max-w-7xl px-6 py-20">
         <div className="mb-10 flex flex-col gap-3">
           <span className="text-primary font-data text-xs tracking-[0.2em] uppercase">Generator</span>
           <h1 className="text-4xl font-medium tracking-tight text-balance">Airfoil Generator</h1>
@@ -125,7 +203,7 @@ export function AirfoilGeneratorPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_20rem]">
           <Card className="gap-4">
             <CardHeader>
               <CardTitle>Airfoil Section</CardTitle>
@@ -138,7 +216,7 @@ export function AirfoilGeneratorPage() {
                     type="button"
                     disabled={f.disabled}
                     onClick={() => setFamily(f.key)}
-                    title={f.disabled ? "6-series thickness/camber tables aren't integrated yet" : undefined}
+                    title={f.disabled ? "Needs published tabulated thickness data we don't have with confidence yet" : undefined}
                     className={cn(
                       "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
                       f.disabled
@@ -154,21 +232,86 @@ export function AirfoilGeneratorPage() {
                 ))}
               </div>
 
-              <div className="border-border/70 relative overflow-hidden rounded-lg border">
-                <div
-                  className="pointer-events-none absolute inset-0 opacity-[0.06]"
-                  style={{
-                    backgroundImage:
-                      "linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)",
-                    backgroundSize: "16px 16px",
-                  }}
-                />
-                <AirfoilPreview airfoil={previewAirfoil} />
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground font-data text-xs tracking-wide">NACA</span>
+                  <input
+                    value={designationInput}
+                    onChange={(e) => handleDesignationChange(e.target.value)}
+                    inputMode="numeric"
+                    spellCheck={false}
+                    placeholder="2412"
+                    className={cn(
+                      "font-data bg-muted text-foreground w-24 rounded-md border px-2.5 py-1 text-sm tracking-wide outline-none",
+                      designationError ? "border-destructive" : "border-transparent focus:border-primary",
+                    )}
+                  />
+                </div>
+                <div className="bg-muted/60 flex gap-1 rounded-lg p-1">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("2d")}
+                    className={cn(
+                      "rounded-md px-2 py-1 text-xs font-medium transition-all",
+                      previewMode === "2d" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    2D
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("3d")}
+                    className={cn(
+                      "rounded-md px-2 py-1 text-xs font-medium transition-all",
+                      previewMode === "3d" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    3D
+                  </button>
+                </div>
               </div>
-              <div className="-mt-2 flex justify-center">
-                <span className="font-data bg-muted text-foreground rounded-md px-2.5 py-1 text-xs tracking-wide">
-                  NACA {designation}
-                </span>
+              {designationError && <p className="text-destructive -mt-2 text-xs">{designationError}</p>}
+
+              <div className="border-border/70 relative overflow-hidden rounded-lg border">
+                {previewMode === "2d" ? (
+                  <>
+                    <div
+                      className="pointer-events-none absolute inset-0 opacity-[0.06]"
+                      style={{
+                        backgroundImage:
+                          "linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)",
+                        backgroundSize: "16px 16px",
+                      }}
+                    />
+                    <AirfoilPreview airfoil={previewAirfoil} />
+                  </>
+                ) : (
+                  <>
+                    <WingPreview3D params={wingPreviewParams} wireframe={renderMode === "wireframe"} />
+                    <div className="bg-background/60 absolute right-2 bottom-2 flex gap-1 rounded-lg p-1 backdrop-blur-sm">
+                      <button
+                        type="button"
+                        onClick={() => setRenderMode("wireframe")}
+                        className={cn(
+                          "rounded-md px-2 py-1 text-[0.65rem] font-medium tracking-wide uppercase transition-all",
+                          renderMode === "wireframe" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        Wireframe
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRenderMode("solid")}
+                        className={cn(
+                          "rounded-md px-2 py-1 text-[0.65rem] font-medium tracking-wide uppercase transition-all",
+                          renderMode === "solid" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        Solid
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
 
               <Separator />
@@ -221,6 +364,42 @@ export function AirfoilGeneratorPage() {
                   </p>
                 </>
               )}
+
+              <Separator />
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                    <Download className="size-3.5" /> Export section
+                  </span>
+                  <Select value={datFormat} onValueChange={(v) => setDatFormat(v as DatFormat)}>
+                    <SelectTrigger size="sm" className="w-56">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DAT_FORMATS.map((f) => (
+                        <SelectItem key={f} value={f}>
+                          {DAT_FORMAT_LABELS[f]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  <Button variant="outline" size="sm" onClick={handleExportDat}>
+                    DAT
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleExportCsv}>
+                    CSV
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleExportSvg}>
+                    SVG
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleExportPng}>
+                    PNG
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -263,6 +442,51 @@ export function AirfoilGeneratorPage() {
                   </>
                 )}
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="gap-4 xl:col-span-1 lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <SquareStack className="size-4" /> Airfoil Library
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <div className="bg-muted/60 flex gap-1 rounded-lg p-1">
+                {AIRFOIL_LIBRARY.map((cat) => (
+                  <button
+                    key={cat.key}
+                    type="button"
+                    onClick={() => setLibraryTab(cat.key)}
+                    className={cn(
+                      "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                      libraryTab === cat.key
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-muted-foreground text-xs">{activeCategory.heading}</p>
+
+              <div className="flex max-h-[28rem] flex-col gap-2 overflow-y-auto pr-1">
+                {activeCategory.entries.map((entry) => (
+                  <div key={`${activeCategory.key}-${entry.designation}-${entry.name}`} className="border-border/60 flex items-center gap-3 rounded-lg border p-2">
+                    <div className="border-border/50 h-10 w-16 shrink-0 overflow-hidden rounded-md border">
+                      <AirfoilPreview airfoil={entry.airfoil} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-data text-foreground text-xs">NACA {entry.designation}</div>
+                      <div className="text-muted-foreground truncate text-[0.7rem]">{entry.name}</div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => loadPreset(entry)}>
+                      Load
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </div>
