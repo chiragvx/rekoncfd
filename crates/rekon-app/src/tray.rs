@@ -44,7 +44,7 @@ fn load_icon() -> Icon {
 /// `std::process::exit` internally once `control_flow` is set to `Exit`
 /// (the "Quit Rekon" menu item), which is this app's one clean-shutdown path
 /// -- it terminates the whole process, including the server's own thread.
-pub fn run(addr: &str) -> ! {
+pub fn run(addr: &str, hosted_origin: &str) -> ! {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
     // Tray/menu events arrive on tray-icon's own internal handling -- forward
@@ -81,7 +81,11 @@ pub fn run(addr: &str) -> ! {
         .expect("appending plain menu items never fails");
 
     let tooltip = format!("Rekon v{} — running at {addr}", env!("CARGO_PKG_VERSION"));
-    let tool_url = format!("http://{addr}/tool");
+    // Opens the hosted site's /tool route, never the raw local address --
+    // same reasoning as `main.rs`'s initial launch. `addr` above is still
+    // shown in the tray for diagnostics (confirms the local solver is
+    // actually up), just no longer what gets opened in the browser.
+    let tool_url = format!("{hosted_origin}/tool");
 
     // Created inside `run`, once the loop is actually pumping (see tray-icon's
     // own `StartCause::Init` note -- creating it any earlier has been an

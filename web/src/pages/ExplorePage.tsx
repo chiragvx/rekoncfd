@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, Compass, LoaderCircle, Wind } from "lucide-react";
 
 import { engine } from "@/lib/engine";
+import { apiUrl } from "@/net/ws";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ export function ExplorePage() {
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/models")
+    fetch(apiUrl("/api/models"))
       .then((res) => {
         if (!res.ok) throw new Error(`failed to load models (${res.status})`);
         return res.json();

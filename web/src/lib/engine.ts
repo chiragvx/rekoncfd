@@ -8,7 +8,7 @@ import { Streamlines } from "@/viz/streamlines";
 import { VorticityField } from "@/viz/vorticityField";
 import { ContourPlane } from "@/viz/contourPlane";
 import { FieldSampler, SliceAxis } from "@/viz/fieldSampler";
-import { RekonSocket, wsUrlForCurrentHost } from "@/net/ws";
+import { apiUrl, RekonSocket, resolveWsUrl } from "@/net/ws";
 import {
   decodeFrame,
   decodeMeshGeometry,
@@ -235,7 +235,7 @@ class RekonEngine {
     this.contourPlane = new ContourPlane(rs.scene);
     this.applyVizState(this.vizState);
 
-    const socket = new RekonSocket(wsUrlForCurrentHost("/ws"));
+    const socket = new RekonSocket(resolveWsUrl("/ws"));
     this.socket = socket;
     socket.onStatus((status) => {
       this.wsStatus = status;
@@ -472,7 +472,7 @@ class RekonEngine {
   async importFile(file: File): Promise<ImportSummary> {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch("/api/mesh/import", { method: "POST", body: formData });
+    const response = await fetch(apiUrl("/api/mesh/import"), { method: "POST", body: formData });
     if (!response.ok) throw new Error(await response.text());
     const summary: ImportSummary = await response.json();
     this.lastMeshSource = { kind: "uploaded", file };
@@ -482,7 +482,7 @@ class RekonEngine {
   }
 
   async orientMesh(mapping: AxisMappingSummary, unit: string): Promise<ImportSummary> {
-    const response = await fetch("/api/mesh/orient", {
+    const response = await fetch(apiUrl("/api/mesh/orient"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chord_axis: mapping.chord, up_axis: mapping.up, span_axis: mapping.span, unit }),
@@ -499,7 +499,7 @@ class RekonEngine {
   }
 
   async clearMesh(): Promise<void> {
-    const response = await fetch("/api/mesh", { method: "DELETE" });
+    const response = await fetch(apiUrl("/api/mesh"), { method: "DELETE" });
     if (!response.ok) throw new Error(await response.text());
     this.lastMeshSource = null;
     this.lastImportSummary = null;
@@ -509,7 +509,7 @@ class RekonEngine {
    * Airfoil Generator) and loads it as the current mesh -- same effect as
    * an STL import, no upload round-trip. */
   async generateWing(params: GenerateWingParams): Promise<ImportSummary> {
-    const response = await fetch("/api/mesh/generate", {
+    const response = await fetch(apiUrl("/api/mesh/generate"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -524,7 +524,7 @@ class RekonEngine {
 
   /** Loads one "Explore Models" catalog entry as the current mesh. */
   async loadSampleModel(id: string): Promise<ImportSummary> {
-    const response = await fetch(`/api/models/${encodeURIComponent(id)}/load`, { method: "POST" });
+    const response = await fetch(apiUrl(`/api/models/${encodeURIComponent(id)}/load`), { method: "POST" });
     if (!response.ok) throw new Error(await response.text());
     const summary: ImportSummary = await response.json();
     this.lastMeshSource = { kind: "sample", sampleId: id };
@@ -538,7 +538,7 @@ class RekonEngine {
    * Never throws: a check that fails (no release yet, offline) reads the
    * same as "no update available" -- see `rekon_app::updater`. */
   async getVersionInfo(): Promise<VersionInfo> {
-    const response = await fetch("/api/version");
+    const response = await fetch(apiUrl("/api/version"));
     if (!response.ok) throw new Error(await response.text());
     return response.json();
   }
@@ -547,7 +547,7 @@ class RekonEngine {
    * exe. The process keeps running its OLD code in memory until it exits --
    * the caller must tell the user to relaunch afterward. */
   async applyUpdate(): Promise<{ version: string }> {
-    const response = await fetch("/api/update/apply", { method: "POST" });
+    const response = await fetch(apiUrl("/api/update/apply"), { method: "POST" });
     if (!response.ok) throw new Error(await response.text());
     return response.json();
   }

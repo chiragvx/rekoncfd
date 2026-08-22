@@ -57,3 +57,33 @@ export function wsUrlForCurrentHost(path: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}${path}`;
 }
+
+/** The desktop app's local solver server -- always this fixed address (see
+ * `rekon-app`'s `ADDR` constant). The hosted site's JS reaches back to this
+ * cross-origin for every API call and the WS connection; the local server's
+ * CORS policy only trusts the hosted origin to do so (see `main.rs`'s
+ * `CorsLayer`). */
+const LOCAL_SERVER_ORIGIN = "http://127.0.0.1:3000";
+
+/** True when this page IS the local server (opened directly, e.g. running
+ * `cargo run`/the embedded build without going through the hosted site at
+ * all) -- same-origin, no cross-origin plumbing needed. */
+function isLocalOrigin(): boolean {
+  return window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
+}
+
+/** Resolves a `/api/...` path to wherever the local solver server actually
+ * is: same-origin if this page IS that server, otherwise the local
+ * companion's fixed address (this page is the hosted site instead). */
+export function apiUrl(path: string): string {
+  return isLocalOrigin() ? path : `${LOCAL_SERVER_ORIGIN}${path}`;
+}
+
+/** Same resolution as `apiUrl`, but for the WS connection -- replaces
+ * `wsUrlForCurrentHost` as the one used by `RekonEngine`, which only ever
+ * needs to reach the local solver, never "whatever origin this page happens
+ * to be" for its own sake. */
+export function resolveWsUrl(path: string): string {
+  if (isLocalOrigin()) return wsUrlForCurrentHost(path);
+  return `ws:${LOCAL_SERVER_ORIGIN.slice("http:".length)}${path}`;
+}
