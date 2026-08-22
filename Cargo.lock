@@ -2619,7 +2619,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rekon-app"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "rekon-geometry"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "glam",
  "rayon",
@@ -2655,7 +2655,7 @@ dependencies = [
 
 [[package]]
 name = "rekon-lbm"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "glam",
  "rayon",
@@ -2667,7 +2667,7 @@ dependencies = [
 
 [[package]]
 name = "rekon-panel"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "glam",
  "nalgebra",
@@ -2679,7 +2679,7 @@ dependencies = [
 
 [[package]]
 name = "rekon-protocol"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "bytemuck",
 ]
