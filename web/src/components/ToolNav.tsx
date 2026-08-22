@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Wind } from "lucide-react";
 
 import { useEngineEvent } from "@/lib/engine";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { RekonMark } from "@/components/RekonMark";
 
 const NAV_LINKS = [
   { to: "/explore", label: "Explore Models" },
@@ -40,7 +40,7 @@ export function ToolNav() {
       <div className="flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <NavLink to="/" className="font-display flex items-center gap-2 text-[0.95rem] font-medium tracking-tight">
-            <Wind className="text-primary size-5" />
+            <RekonMark className="text-primary size-5" />
             Rekon
           </NavLink>
           <div className="font-data text-muted-foreground hidden items-center gap-3 border-l pl-4 text-xs sm:flex">

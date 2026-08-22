@@ -1,8 +1,8 @@
 import { NavLink } from "react-router-dom";
-import { Wind } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { RekonMark } from "@/components/RekonMark";
 
 const NAV_LINKS = [
   { to: "/explore", label: "Explore Models" },
@@ -18,7 +18,7 @@ export function SiteHeader() {
     <header className="border-border/60 bg-background/75 sticky top-0 z-20 border-b backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <NavLink to="/" className="font-display flex items-center gap-2.5 text-[1.05rem] font-medium tracking-tight">
-          <Wind className="text-primary size-5" />
+          <RekonMark className="text-primary size-5" />
           Rekon
         </NavLink>
 

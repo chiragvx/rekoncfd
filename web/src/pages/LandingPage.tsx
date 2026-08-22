@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Gauge, LineChart, Ruler, ScanLine, Upload, Wind } from "lucide-react";
 
 import { SiteHeader } from "@/components/SiteHeader";
+import { RekonMark } from "@/components/RekonMark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -57,6 +58,7 @@ export function LandingPage() {
         />
 
         <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-7 px-6 pt-28 pb-20 text-center">
+          <RekonMark className="text-primary size-12 drop-shadow-[0_0_24px_hsl(var(--primary)/0.45)]" />
           <span className="border-border/80 text-muted-foreground font-data flex items-center gap-2 rounded-full border px-3 py-1 text-[0.7rem] tracking-[0.15em] uppercase">
             <span className="bg-success size-1.5 rounded-full" />
             RC flying-wing CFD, in the browser
