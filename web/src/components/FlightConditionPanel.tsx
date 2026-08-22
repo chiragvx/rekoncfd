@@ -26,7 +26,7 @@ export function FlightConditionPanel({ chordEstimateM }: { chordEstimateM: numbe
 
   // Keeps these sliders' displayed values in sync when something OTHER than
   // dragging them changed the flight condition -- e.g. loading a saved
-  // project (see `SaveProjectPanel`). Redundant-but-harmless for this
+  // project (see `ProjectMenu`). Redundant-but-harmless for this
   // panel's own `fire()` calls, which emit the same event right back.
   useEngineEvent("sliderValues", (v) => setValues(v));
 

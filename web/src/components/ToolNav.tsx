@@ -2,10 +2,12 @@ import { useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import { useEngineEvent } from "@/lib/engine";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { RekonMark } from "@/components/RekonMark";
 import { AccountControl } from "@/components/AccountControl";
+import { ProjectMenu } from "@/components/ProjectMenu";
 
 const NAV_LINKS = [
   { to: "/explore", label: "Explore Models" },
@@ -71,6 +73,13 @@ export function ToolNav() {
           <Badge variant={status === "open" ? "success" : status === "connecting" ? "secondary" : "destructive"}>
             {status}
           </Badge>
+
+          {isSupabaseConfigured && (
+            <>
+              <div className="bg-border h-5 w-px" />
+              <ProjectMenu />
+            </>
+          )}
 
           <AccountControl />
         </div>

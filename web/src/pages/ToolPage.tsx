@@ -18,7 +18,6 @@ import { StabilityPanel } from "@/components/StabilityPanel";
 import { SweepAnimationPanel } from "@/components/SweepAnimationPanel";
 import { VisualizationPanel } from "@/components/VisualizationPanel";
 import { SolvePanel } from "@/components/SolvePanel";
-import { SaveProjectPanel } from "@/components/SaveProjectPanel";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 /** Groups a cluster of related panels under a small uppercase label that
@@ -113,11 +112,6 @@ function ToolPageContent() {
           <Section label="Animation">
             <SweepAnimationPanel />
           </Section>
-          {isSupabaseConfigured && (
-            <Section label="Account">
-              <SaveProjectPanel />
-            </Section>
-          )}
         </Sidebar>
       </div>
     </div>

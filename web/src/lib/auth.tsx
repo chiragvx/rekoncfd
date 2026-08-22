@@ -43,7 +43,7 @@ export function useAuth(): AuthState {
 
 /** Redirects to GitHub, then back into the app once Supabase's own OAuth
  * callback completes -- `/tool` specifically, since that's the one place
- * sign-in actually matters (see `SaveProjectPanel`). Must be in Supabase's
+ * sign-in actually matters (see `ProjectMenu`). Must be in Supabase's
  * Auth redirect allow-list, along with the hosted domain, for this to work
  * from the desktop app's 127.0.0.1 origin too. */
 export async function signInWithGithub(): Promise<void> {

@@ -7,7 +7,7 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
  * of the core tool -- gate everything on this rather than letting a missing
  * env var surface as a runtime crash. `false` until a real Supabase project
  * is connected (see `.env.example`), at which point every consumer of this
- * flag (AccountControl, AuthModal, SaveProjectPanel) starts rendering for
+ * flag (AccountControl, AuthModal, ProjectMenu) starts rendering for
  * real with no other code change needed. */
 export const isSupabaseConfigured = Boolean(url && anonKey);
 

@@ -7,7 +7,7 @@ import { FieldSampler, SliceAxis, turbulenceColormap } from "./fieldSampler";
 
 /** Release points across the seed plane. Rendered as complete curves rather
  * than moving particles, so this is a count of STREAMLINES on screen. */
-const SEED_COUNT = 210;
+const SEED_COUNT = 320;
 /** Columns in the seed-plane release grid; rows follow from the count. */
 const RAKE_COLS = Math.max(1, Math.round(Math.sqrt(SEED_COUNT)));
 
@@ -27,8 +27,18 @@ const MIN_SPEED_FRACTION = 0.02;
  * clamped to 1px on most desktop backends regardless of what's requested
  * (a well-known three.js/ANGLE limitation), which is exactly why these were
  * hard to see clearly before. `LineSegments2`/`LineMaterial` render lines as
- * camera-facing screen-space quads instead, so this value actually applies. */
-const LINE_WIDTH_PX = 2.5;
+ * camera-facing screen-space quads instead, so this value actually applies.
+ * Deliberately modest (not the first value tried, 2.5) -- `Line2`/
+ * `LineMaterial` render every short integration-step segment as its own
+ * independent quad with no join/miter between neighbors (three.js doesn't
+ * implement that for this addon), so at a wide width, streamlines that
+ * genuinely converge close together near the body/wake -- a real, expected
+ * feature of a flow field, not a bug -- visually fuse into what reads as a
+ * single doubled/braided line instead of distinct threads. A narrower width
+ * keeps each streamline legible as its own line even where several run
+ * close together, while still being clearly thicker than the 1px native-GL
+ * baseline this replaced. */
+const LINE_WIDTH_PX = 1.6;
 /** Square root of the vorticity-scale fraction is used (not the fraction
  * itself) so the colormap reddens readily even at modest vorticity rather
  * than only right at the reference scale -- "any turbulence shows," not
