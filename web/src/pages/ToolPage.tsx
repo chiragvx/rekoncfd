@@ -2,6 +2,8 @@ import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
 import type { ImportSummary } from "@/lib/engine";
+import { AuthProvider } from "@/lib/auth";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import { Viewport } from "@/components/Viewport";
 import { ToolNav } from "@/components/ToolNav";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -16,6 +18,7 @@ import { StabilityPanel } from "@/components/StabilityPanel";
 import { SweepAnimationPanel } from "@/components/SweepAnimationPanel";
 import { VisualizationPanel } from "@/components/VisualizationPanel";
 import { SolvePanel } from "@/components/SolvePanel";
+import { SaveProjectPanel } from "@/components/SaveProjectPanel";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 /** Groups a cluster of related panels under a small uppercase label that
@@ -49,44 +52,51 @@ export function ToolPage() {
   const [chordEstimateM, setChordEstimateM] = useState<number | null>(null);
 
   return (
-    <div className="fixed inset-0 flex flex-col">
-      <ToolNav />
-      <UpdateBanner />
-      <DownloadPromptModal />
-      <CoachMarks />
+    <AuthProvider>
+      <div className="fixed inset-0 flex flex-col">
+        <ToolNav />
+        <UpdateBanner />
+        <DownloadPromptModal />
+        <CoachMarks />
 
-      <div className="flex flex-1 gap-4 overflow-hidden px-4 pb-4 pt-[4.5rem]">
-        <Sidebar>
-          <Section label="Flow Field">
-            <SolvePanel />
-            <VisualizationPanel />
-          </Section>
-        </Sidebar>
+        <div className="flex flex-1 gap-4 overflow-hidden px-4 pb-4 pt-[4.5rem]">
+          <Sidebar>
+            <Section label="Flow Field">
+              <SolvePanel />
+              <VisualizationPanel />
+            </Section>
+          </Sidebar>
 
-        <div className="relative flex min-w-0 flex-1 flex-col gap-4">
-          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[32px] border">
-            <Viewport />
-            <ViewportToolbar />
-            <RotateControl />
+          <div className="relative flex min-w-0 flex-1 flex-col gap-4">
+            <div className="relative min-h-0 flex-1 overflow-hidden rounded-[32px] border">
+              <Viewport />
+              <ViewportToolbar />
+              <RotateControl />
+            </div>
+            <OutputBar />
           </div>
-          <OutputBar />
-        </div>
 
-        <Sidebar>
-          <Section label="Model">
-            <ImportPanel
-              onMeshSummaryChange={(summary: ImportSummary | null) => setChordEstimateM(summary?.chord_estimate_m ?? null)}
-            />
-          </Section>
-          <Section label="Aerodynamics">
-            <FlightConditionPanel chordEstimateM={chordEstimateM} />
-            <StabilityPanel />
-          </Section>
-          <Section label="Animation">
-            <SweepAnimationPanel />
-          </Section>
-        </Sidebar>
+          <Sidebar>
+            <Section label="Model">
+              <ImportPanel
+                onMeshSummaryChange={(summary: ImportSummary | null) => setChordEstimateM(summary?.chord_estimate_m ?? null)}
+              />
+            </Section>
+            <Section label="Aerodynamics">
+              <FlightConditionPanel chordEstimateM={chordEstimateM} />
+              <StabilityPanel />
+            </Section>
+            <Section label="Animation">
+              <SweepAnimationPanel />
+            </Section>
+            {isSupabaseConfigured && (
+              <Section label="Account">
+                <SaveProjectPanel />
+              </Section>
+            )}
+          </Sidebar>
+        </div>
       </div>
-    </div>
+    </AuthProvider>
   );
 }

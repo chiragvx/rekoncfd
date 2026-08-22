@@ -65,6 +65,15 @@ export interface GenerateWingParams {
   n_span_stations: number;
 }
 
+/** How the CURRENT mesh got here -- tracked purely so a "save project"
+ * feature (see `lib/projects.ts`) knows what to persist: a sample/generated
+ * mesh only needs its (tiny, exact) source parameters re-run on load, while
+ * an uploaded STL needs the actual file bytes kept around to re-upload. */
+export type MeshSource =
+  | { kind: "sample"; sampleId: string }
+  | { kind: "generated"; params: GenerateWingParams }
+  | { kind: "uploaded"; file: File };
+
 export interface ImportSummary {
   mesh_id: number;
   vertex_count: number;
@@ -118,6 +127,11 @@ type EventMap = {
    * own displayed angle stays in sync regardless of which of those changed
    * it. */
   bankDeg: number;
+  /** Fired on every `sendSlider` call, whoever made it -- lets a display
+   * (e.g. Flight Condition's own sliders) stay in sync when something OTHER
+   * than the user dragging that exact control changed the values, such as
+   * loading a saved project's flight condition back in. */
+  sliderValues: SliderValues;
   solveProgress: DecodedSolveProgress;
   solveStarted: void;
   solveDone: number; // elapsed ms
@@ -161,6 +175,13 @@ class RekonEngine {
   private wsStatus: "connecting" | "open" | "closed" = "connecting";
 
   private vizState: VizState = { ...DEFAULT_VIZ_STATE };
+  /** See `MeshSource` -- `null` until the first mesh of this session loads. */
+  private lastMeshSource: MeshSource | null = null;
+  /** The latest `meshSummary` payload, kept around (in addition to being
+   * emitted as an event) so a save-project action started well after the
+   * summary fired -- e.g. after the user has since re-oriented an uploaded
+   * mesh -- still has the CURRENT applied mapping/unit to persist. */
+  private lastImportSummary: ImportSummary | null = null;
   private solveStartedAt = 0;
   /** The most recent (alpha, V) the Flight Condition panel has sent, cached
    * here (not owned by any one component) purely so the Solve panel's
@@ -324,6 +345,7 @@ class RekonEngine {
   sendSlider(values: SliderValues) {
     this.lastSliderValues = values;
     this.setBankDeg(values.bankDeg);
+    this.emit("sliderValues", values);
     this.socket?.send(encodeSliderUpdate(values.alphaDeg, values.vInf, values.cg, values.bankDeg));
   }
 
@@ -333,6 +355,18 @@ class RekonEngine {
 
   getWsStatus(): "connecting" | "open" | "closed" {
     return this.wsStatus;
+  }
+
+  getVizState(): VizState {
+    return this.vizState;
+  }
+
+  getLastMeshSource(): MeshSource | null {
+    return this.lastMeshSource;
+  }
+
+  getLastImportSummary(): ImportSummary | null {
+    return this.lastImportSummary;
   }
 
   /** Rotates the RENDERED model to `deg` instantly, client-side only -- no
@@ -427,6 +461,8 @@ class RekonEngine {
     const response = await fetch("/api/mesh/import", { method: "POST", body: formData });
     if (!response.ok) throw new Error(await response.text());
     const summary: ImportSummary = await response.json();
+    this.lastMeshSource = { kind: "uploaded", file };
+    this.lastImportSummary = summary;
     this.emit("meshSummary", summary);
     return summary;
   }
@@ -439,6 +475,11 @@ class RekonEngine {
     });
     if (!response.ok) throw new Error(await response.text());
     const summary: ImportSummary = await response.json();
+    // Re-orienting doesn't change WHICH file is uploaded, only the mapping/
+    // unit applied to it -- `lastMeshSource` (the file itself) is untouched;
+    // only the cached summary (which callers read the mapping back out of)
+    // needs to move forward.
+    this.lastImportSummary = summary;
     this.emit("meshSummary", summary);
     return summary;
   }
@@ -446,6 +487,8 @@ class RekonEngine {
   async clearMesh(): Promise<void> {
     const response = await fetch("/api/mesh", { method: "DELETE" });
     if (!response.ok) throw new Error(await response.text());
+    this.lastMeshSource = null;
+    this.lastImportSummary = null;
   }
 
   /** Builds a wing mesh server-side from NACA + planform parameters (the
@@ -459,6 +502,8 @@ class RekonEngine {
     });
     if (!response.ok) throw new Error(await response.text());
     const summary: ImportSummary = await response.json();
+    this.lastMeshSource = { kind: "generated", params };
+    this.lastImportSummary = summary;
     this.emit("meshSummary", summary);
     return summary;
   }
@@ -468,6 +513,8 @@ class RekonEngine {
     const response = await fetch(`/api/models/${encodeURIComponent(id)}/load`, { method: "POST" });
     if (!response.ok) throw new Error(await response.text());
     const summary: ImportSummary = await response.json();
+    this.lastMeshSource = { kind: "sample", sampleId: id };
+    this.lastImportSummary = summary;
     this.emit("meshSummary", summary);
     return summary;
   }

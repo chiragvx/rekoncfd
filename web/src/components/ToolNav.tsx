@@ -5,6 +5,7 @@ import { useEngineEvent } from "@/lib/engine";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { RekonMark } from "@/components/RekonMark";
+import { AccountControl } from "@/components/AccountControl";
 
 const NAV_LINKS = [
   { to: "/explore", label: "Explore Models" },
@@ -70,6 +71,8 @@ export function ToolNav() {
           <Badge variant={status === "open" ? "success" : status === "connecting" ? "secondary" : "destructive"}>
             {status}
           </Badge>
+
+          <AccountControl />
         </div>
       </div>
     </header>
