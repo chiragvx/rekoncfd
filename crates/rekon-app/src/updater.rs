@@ -19,8 +19,10 @@ const REPO_OWNER: &str = "chiragvx";
 const REPO_NAME: &str = "rekoncfd";
 
 /// Must match the actual built binary name (`cargo build` produces
-/// `rekon-app.exe` on Windows) -- `self_update` appends the platform exe
-/// suffix automatically, so this stays extension-less.
+/// `rekon-app.exe` on Windows, plain `rekon-app` on macOS) -- `self_update`
+/// appends the platform exe suffix and target triple automatically, so this
+/// stays extension-less. The release workflow's asset names
+/// (`rekon-app-<target-triple>[.exe]`) are what it actually matches against.
 const BIN_NAME: &str = "rekon-app";
 
 #[derive(Debug, Clone, Serialize)]

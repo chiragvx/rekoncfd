@@ -23,6 +23,38 @@ export function downloadUrlFor(assetName: string): string {
   return `https://github.com/${GITHUB_REPO.owner}/${GITHUB_REPO.name}/releases/latest/download/${assetName}`;
 }
 
+export const WINDOWS_ASSET = "rekon-app-x86_64-pc-windows-msvc.exe";
+export const MAC_ASSET_ARM = "rekon-app-aarch64-apple-darwin";
+export const MAC_ASSET_X86 = "rekon-app-x86_64-apple-darwin";
+
+/** Fetched via `curl` rather than a browser click so the file never picks up
+ * macOS's quarantine flag -- without a paid Apple Developer ID to notarize
+ * against, a browser-downloaded build would otherwise hit Gatekeeper's
+ * "unidentified developer" block on first launch. curl/Terminal downloads
+ * skip that flag entirely (it's only set by the browser's own download API),
+ * so this is the one way to get a clean, warning-free first run without
+ * paying for notarization. The build is still ad-hoc signed in CI -- Apple
+ * Silicon refuses to run an entirely unsigned binary at all. */
+export function macInstallCommand(): string {
+  return [
+    `curl -fsSL -o rekon-app "$( [ "$(uname -m)" = "arm64" ] && echo '${downloadUrlFor(MAC_ASSET_ARM)}' || echo '${downloadUrlFor(MAC_ASSET_X86)}' )"`,
+    `chmod +x rekon-app`,
+    `xattr -d com.apple.quarantine rekon-app 2>/dev/null`,
+    `./rekon-app`,
+  ].join("\n");
+}
+
+/** Best-effort OS sniff for picking which download flow to lead with --
+ * wrong guesses just show the other OS's option instead of the reader's,
+ * never break anything. */
+export function detectOS(): "mac" | "windows" | "other" {
+  if (typeof navigator === "undefined") return "other";
+  const platform = `${navigator.userAgent} ${navigator.platform ?? ""}`;
+  if (/Mac|iPhone|iPad/i.test(platform)) return "mac";
+  if (/Win/i.test(platform)) return "windows";
+  return "other";
+}
+
 export async function fetchLatestRelease(): Promise<LatestRelease> {
   const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO.owner}/${GITHUB_REPO.name}/releases/latest`);
   if (!res.ok) throw new Error(`no release found (${res.status})`);

@@ -1,6 +1,6 @@
 # Rekon CFD
 
-> Rekon is a browser-based aerodynamic analysis tool for RC flying wings. It combines a live 3D source-doublet panel method (CL, CD-induced, Cm, trim, static margin) with an on-demand D3Q19 lattice-Boltzmann flow-field solver (pressure, streamlines, vorticity, a speed contour plane). It runs as a hosted preview at rekoncfd.vercel.app and as a free, standalone, self-updating Windows desktop app that does the actual solving locally and offline.
+> Rekon is a browser-based aerodynamic analysis tool for RC flying wings. It combines a live 3D source-doublet panel method (CL, CD-induced, Cm, trim, static margin) with an on-demand D3Q19 lattice-Boltzmann flow-field solver (pressure, streamlines, vorticity, a speed contour plane). It runs as a hosted preview at rekoncfd.vercel.app and as a free, standalone, self-updating desktop app (Windows or macOS) that does the actual solving locally and offline.
 
 Rekon is built for people designing RC flying-wing aircraft who want real lift/drag/trim numbers before cutting foam or filament, without needing a full commercial CFD license or a CAD-heavy workflow.
 
@@ -11,12 +11,12 @@ Rekon is built for people designing RC flying-wing aircraft who want real lift/d
 - Also computes trim (bisection search for Cm=0), static margin about a given CG, and full alpha-sweep polars.
 - Accepts STL geometry import (with manual axis/unit override when auto-detection guesses wrong) or a built-in NACA 4/5-digit airfoil and wing generator (span, taper, sweep, dihedral, washout).
 - Supports a real banked-flight animation: each frame is a genuine re-solve (fresh panel-method factorization plus a full LBM run) on the mesh rotated to that frame's bank angle, not a cosmetic overlay.
-- The hosted web page at rekoncfd.vercel.app is a preview shell only -- it has no backend of its own to solve anything against. The actual solvers only run inside the downloaded desktop .exe, which starts a local server on 127.0.0.1 and serves the same UI fully offline.
-- Desktop app is a single unsigned Windows .exe with no installer; it checks GitHub Releases on launch and updates itself in place.
+- The hosted web page at rekoncfd.vercel.app is a preview shell only -- it has no backend of its own to solve anything against. The actual solvers only run inside the downloaded desktop app, which starts a local server on 127.0.0.1 and serves the same UI fully offline.
+- Desktop app ships for Windows (a single unsigned .exe, no installer) and macOS (Apple Silicon or Intel, installed via a Terminal one-liner since there's no Apple Developer ID to notarize against yet). Both check GitHub Releases on launch and update themselves in place.
 
 ## Pages
 
-- Homepage: https://rekoncfd.vercel.app/ -- product overview, screenshots, FAQ, and the Windows desktop app download (at the #download section)
+- Homepage: https://rekoncfd.vercel.app/ -- product overview, screenshots, FAQ, and the desktop app download for Windows or macOS (at the #download section)
 - Tool: https://rekoncfd.vercel.app/tool -- the live 3D solver (needs the downloaded desktop app to actually compute anything)
 - Explore Models: https://rekoncfd.vercel.app/explore -- a gallery of ready-to-fly sample planforms
 - Airfoil Generator: https://rekoncfd.vercel.app/airfoils -- NACA 4/5-digit section + wing generator

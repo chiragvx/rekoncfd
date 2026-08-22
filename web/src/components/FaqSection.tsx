@@ -15,7 +15,7 @@ export interface FaqEntry {
 export const FAQS: FaqEntry[] = [
   {
     q: "Is Rekon free?",
-    a: "Yes. Both the hosted web preview and the downloadable Windows desktop app are free, with no account required.",
+    a: "Yes. Both the hosted web preview and the downloadable desktop app (Windows or macOS) are free.",
   },
   {
     q: "Do I need an internet connection to use it?",
@@ -35,7 +35,7 @@ export const FAQS: FaqEntry[] = [
   },
   {
     q: "What platforms does the desktop app support?",
-    a: "Windows, as a single standalone .exe with no installer or admin rights required.",
+    a: "Windows, as a single standalone .exe with no installer or admin rights required, and macOS (Apple Silicon or Intel), installed via a short Terminal command.",
   },
 ];
 

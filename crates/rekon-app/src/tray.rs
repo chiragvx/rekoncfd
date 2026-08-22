@@ -1,14 +1,16 @@
-//! Native Windows system-tray icon: a persistent presence for the app beyond
-//! the one browser tab `main` opens on launch, showing basic status/trust
-//! info (version, an auto-checked update status, a link to the source) via
-//! `tray-icon` + `tao`.
+//! Native system-tray/menu-bar icon (Windows + macOS): a persistent presence
+//! for the app beyond the one browser tab `main` opens on launch, showing
+//! basic status/trust info (version, an auto-checked update status, a link
+//! to the source) via `tray-icon` + `tao`.
 //!
-//! `tray-icon`'s own docs: on Windows the tray icon must be created on the
-//! SAME thread as a running win32 message loop. `tao::EventLoop::run` blocks
-//! forever pumping that loop, so this crate's `main` calls `tray::run` as its
-//! very last action on the main thread, with the actual Axum server moved
-//! onto a separate dedicated OS thread (see `main.rs`) -- the two can't share
-//! a thread since both want to block it forever in their own way.
+//! `tray-icon`'s own docs: the tray icon must be created on the SAME thread
+//! as the OS's native event loop (win32 message loop on Windows, the main
+//! thread's `NSApplication` run loop on macOS -- the latter is enforced by
+//! the OS, not just advised). `tao::EventLoop::run` blocks forever pumping
+//! that loop, so this crate's `main` calls `tray::run` as its very last
+//! action on the main thread, with the actual Axum server moved onto a
+//! separate dedicated OS thread (see `main.rs`) -- the two can't share a
+//! thread since both want to block it forever in their own way.
 
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};

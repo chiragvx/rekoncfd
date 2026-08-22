@@ -1,0 +1,88 @@
+name: Release
+
+# Builds the standalone desktop app for Windows and macOS (Apple Silicon +
+# Intel) and attaches them to the GitHub Release for the pushed tag. Bump
+# the version in the root Cargo.toml's [workspace.package], commit, then
+# push a matching `vX.Y.Z` tag to cut a release -- self_update (Rust side)
+# and fetchLatestRelease (web side) both key off the same GitHub Releases
+# API, so no other wiring is needed once assets land there.
+#
+# rust-embed bakes `web/dist` into the `rekon-app` binary at COMPILE TIME
+# (see crates/rekon-app/src/http.rs) -- `npm run build` must run before
+# `cargo build` on every leg of the matrix, or that leg embeds a stale/empty
+# frontend.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: rekon-app-x86_64-pc-windows-msvc.exe
+            built_name: rekon-app.exe
+          - os: macos-latest # arm64 (Apple Silicon) runner
+            target: aarch64-apple-darwin
+            asset_name: rekon-app-aarch64-apple-darwin
+            built_name: rekon-app
+          - os: macos-13 # x86_64 (Intel) runner
+            target: x86_64-apple-darwin
+            asset_name: rekon-app-x86_64-apple-darwin
+            built_name: rekon-app
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend (embedded into the binary at compile time)
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build rekon-app
+        run: cargo build --release --target ${{ matrix.target }} -p rekon-app
+
+      - name: Ad-hoc codesign (macOS)
+        if: runner.os == 'macOS'
+        # No paid Apple Developer ID yet -- ad-hoc signing has no verified
+        # identity behind it (Gatekeeper still warns on a browser download),
+        # but it's required just for Apple Silicon to be willing to execute
+        # an unsigned binary at all. The website's macOS install command
+        # installs via curl/Terminal specifically to sidestep the
+        # quarantine flag that would otherwise trigger that Gatekeeper
+        # warning (curl never sets it; only a browser's download API does).
+        run: codesign --force --sign - "target/${{ matrix.target }}/release/${{ matrix.built_name }}"
+
+      - name: Stage release asset
+        shell: bash
+        run: |
+          mkdir -p dist-out
+          cp "target/${{ matrix.target }}/release/${{ matrix.built_name }}" "dist-out/${{ matrix.asset_name }}"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-out/${{ matrix.asset_name }}
+          generate_release_notes: true

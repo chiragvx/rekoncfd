@@ -15,7 +15,7 @@ const LINK_GROUPS = [
   {
     heading: "Get Rekon",
     links: [
-      { to: "/#download", label: "Download for Windows" },
+      { to: "/#download", label: "Download for Windows / macOS" },
       { to: "https://github.com/chiragvx/rekoncfd", label: "Source on GitHub", external: true },
       { to: "https://github.com/chiragvx/rekoncfd/releases", label: "Release notes", external: true },
     ],

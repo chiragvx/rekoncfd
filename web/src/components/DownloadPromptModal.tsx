@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, ShieldCheck, X } from "lucide-react";
+import { Check, Copy, Download, ShieldCheck, X } from "lucide-react";
 
 import { engine, useEngineEvent } from "@/lib/engine";
-import { downloadUrlFor, fetchLatestRelease } from "@/lib/release";
+import { detectOS, downloadUrlFor, fetchLatestRelease, macInstallCommand, WINDOWS_ASSET } from "@/lib/release";
 import { Button } from "@/components/ui/button";
 import { WingRenderArt } from "@/components/WingRenderArt";
 
-const WINDOWS_ASSET = "rekon-app-x86_64-pc-windows-msvc.exe";
 const HAS_DOWNLOADED_KEY = "rekon:hasDownloadedApp";
 /** How long to wait for the WS to reach "open" before concluding there's no
  * local server behind this page (i.e. this is the hosted web build, not the
@@ -27,8 +26,10 @@ const GRACE_PERIOD_MS = 3000;
 export function DownloadPromptModal() {
   const [visible, setVisible] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
   const armedRef = useRef(false);
+  const os = detectOS();
 
   function alreadyDownloaded() {
     try {
@@ -70,13 +71,28 @@ export function DownloadPromptModal() {
     if (status === "open") resolve();
   });
 
-  function handleDownloadClick() {
+  function markDownloaded() {
     try {
       localStorage.setItem(HAS_DOWNLOADED_KEY, "1");
     } catch {
       /* private browsing or storage disabled -- nothing more we can do, and the download itself still proceeds */
     }
+  }
+
+  function handleDownloadClick() {
+    markDownloaded();
     setVisible(false);
+  }
+
+  async function handleCopyInstallCommand() {
+    try {
+      await navigator.clipboard.writeText(macInstallCommand());
+      setCopied(true);
+      markDownloaded();
+      setTimeout(() => setVisible(false), 900);
+    } catch {
+      /* clipboard API unavailable -- fall through, the command stays visible to copy by hand */
+    }
   }
 
   if (!visible) return null;
@@ -109,7 +125,7 @@ export function DownloadPromptModal() {
           <div className="border-border/60 bg-background/40 flex flex-col gap-2 rounded-lg border p-3">
             <div className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
               <ShieldCheck className="text-success size-4 shrink-0" />
-              Why trust an unsigned .exe?
+              {os === "mac" ? "Why trust this install script?" : "Why trust an unsigned .exe?"}
             </div>
             <ul className="text-muted-foreground flex flex-col gap-1 pl-6 text-xs leading-relaxed">
               <li className="list-disc">
@@ -125,23 +141,50 @@ export function DownloadPromptModal() {
                 — read or build the exact code yourself.
               </li>
               <li className="list-disc">Runs 100% offline, only on 127.0.0.1 — nothing you design ever leaves your machine.</li>
-              <li className="list-disc">
-                SmartScreen may warn because it isn't code-signed (a paid cert small open-source projects skip) — the
-                release page publishes a SHA-256 checksum for every build if you want to verify it.
-              </li>
+              {os === "mac" ? (
+                <li className="list-disc">
+                  No paid Apple Developer ID behind this yet, so a browser download would hit Gatekeeper's warning —
+                  installing via Terminal skips that entirely and is the standard way small open-source Mac tools ship.
+                </li>
+              ) : (
+                <li className="list-disc">
+                  SmartScreen may warn because it isn't code-signed (a paid cert small open-source projects skip) — the
+                  release page publishes a SHA-256 checksum for every build if you want to verify it.
+                </li>
+              )}
             </ul>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button asChild size="lg" className="flex-1" onClick={handleDownloadClick}>
-              <a href={downloadUrlFor(WINDOWS_ASSET)}>
-                <Download /> Download for Windows{version ? ` (v${version})` : ""}
-              </a>
-            </Button>
-            <Button variant="outline" size="lg" onClick={() => setVisible(false)}>
-              Not now
-            </Button>
-          </div>
+          {os === "mac" ? (
+            <div className="flex flex-col gap-2">
+              <div className="border-border/60 bg-background/60 relative rounded-lg border p-3">
+                <pre className="font-data text-muted-foreground overflow-x-auto text-[0.68rem] leading-relaxed whitespace-pre">
+                  {macInstallCommand()}
+                </pre>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="lg" className="flex-1" onClick={handleCopyInstallCommand}>
+                  {copied ? <Check /> : <Copy />}
+                  {copied ? "Copied" : "Copy install command"}
+                  {version ? ` (v${version})` : ""}
+                </Button>
+                <Button variant="outline" size="lg" onClick={() => setVisible(false)}>
+                  Not now
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button asChild size="lg" className="flex-1" onClick={handleDownloadClick}>
+                <a href={downloadUrlFor(WINDOWS_ASSET)}>
+                  <Download /> Download for Windows{version ? ` (v${version})` : ""}
+                </a>
+              </Button>
+              <Button variant="outline" size="lg" onClick={() => setVisible(false)}>
+                Not now
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>
