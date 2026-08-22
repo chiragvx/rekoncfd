@@ -23,20 +23,14 @@ pub enum PipelineError {
 /// occupancy fraction.
 const DEFAULT_VOXEL_DIMS: (usize, usize, usize) = (128, 64, 64);
 
-/// The panel method's AIC assembly is O(n^2) (each entry its own adaptive
-/// quadrature) and its system-matrix factorization is O(n^3) -- measured
-/// (release build) at 2.1s/2128 panels, 21.0s/4104 panels, 166.8s/8056
-/// panels, matching that cubic scaling almost exactly. A "tens of
-/// thousands of panels" mesh -- an easy STL triangle count for anything
-/// beyond a simple test wing -- extrapolates to HOURS. There's no progress
-/// reporting on this path (it's one synchronous call inside
-/// `spawn_blocking`), so past this cap the import request would just hang
-/// with no error rather than fail fast. Skipping the live solve above the
-/// cap keeps import responsive (worst case ~10s, per the measurements
-/// above) regardless of mesh complexity; the mesh itself (view + voxelize +
-/// the on-demand LBM solve, which runs on a fixed-resolution grid
-/// independent of triangle count) stays fully usable either way.
-const MAX_PANEL_METHOD_PANELS: usize = 3000;
+/// Re-exported from `rekon_panel` (the single source of truth -- see its own
+/// doc comment for the O(n^2)/O(n^3) reasoning) so this module's messaging
+/// can't silently drift from the limit `PanelModel::build` actually enforces.
+/// Checking it again here, before even attempting the build, keeps import
+/// responsive (worst case ~10s) instead of the request hanging with no
+/// progress reporting for however long the now-guaranteed-to-fail build
+/// would otherwise run.
+use rekon_panel::MAX_PANELS as MAX_PANEL_METHOD_PANELS;
 
 /// The result of the cheap, orientation-independent half of the pipeline
 /// (parse + repair + heuristics) -- kept around per mesh so `POST

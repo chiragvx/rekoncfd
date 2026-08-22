@@ -5,7 +5,7 @@ pub mod trim;
 pub mod wake;
 
 pub use aero_coeffs::{coefficients, solve_and_integrate, surface_flow, Coefficients, SurfaceFlow};
-pub use solve::{Freestream, PanelConfig, PanelError, PanelModel, ReferenceQuantities, SolveResult};
+pub use solve::{Freestream, PanelConfig, PanelError, PanelModel, ReferenceQuantities, SolveResult, MAX_PANELS};
 pub use trim::{find_trim, polar, static_margin_at, PolarPoint, TrimError, TrimResult};
 
 /// Synthetic test meshes shared across this crate's own unit tests (`solve`,

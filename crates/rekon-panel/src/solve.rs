@@ -20,7 +20,26 @@ pub enum PanelError {
     EmptyMesh,
     #[error("doublet influence matrix is singular -- check for degenerate/non-manifold panel geometry")]
     SingularSystem,
+    #[error("mesh has {count} panels, over the {max}-panel limit for the panel-method solve (its dense AIC assembly/factorization doesn't scale past this) -- simplify the mesh to enable it")]
+    TooManyPanels { count: usize, max: usize },
 }
+
+/// The panel method's AIC assembly is O(n^2) (each entry its own adaptive
+/// quadrature, and the assembled matrix itself is n^2 `f64`s -- 8 bytes *
+/// 50,000^2 is already 20GB) and its system-matrix factorization is O(n^3)
+/// -- measured (release build) at 2.1s/2128 panels, 21.0s/4104 panels,
+/// 166.8s/8056 panels, matching that cubic scaling almost exactly. A "tens
+/// of thousands of panels" mesh -- an easy STL triangle count for anything
+/// beyond a simple test wing -- extrapolates to hours of compute and tens of
+/// GB of RAM, which is what changing the bank angle on a huge imported mesh
+/// used to do: unlike the initial import (which skips the panel-method
+/// solve above this same cap, see `rekon-app`'s `pipeline::finalize`), a
+/// bank-angle rebuild used to call `PanelModel::build` completely unchecked,
+/// crashing the machine instead of failing gracefully. Enforcing the cap
+/// HERE, inside `build` itself, is what makes it impossible for any current
+/// or future caller (`pipeline::finalize`, an interactive bank-angle change,
+/// one frame of the animated bank sweep -- all of them) to bypass it.
+pub const MAX_PANELS: usize = 3000;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PanelConfig {
@@ -130,6 +149,9 @@ impl PanelModel {
         let panels = panelize(mesh);
         if panels.is_empty() {
             return Err(PanelError::EmptyMesh);
+        }
+        if panels.len() > MAX_PANELS {
+            return Err(PanelError::TooManyPanels { count: panels.len(), max: MAX_PANELS });
         }
 
         let geoms: Vec<PanelGeom> = panels.iter().map(PanelGeom::from_panel).collect();
@@ -333,6 +355,34 @@ mod tests {
         assert!((model.reference.span - 1.0).abs() < 1e-3);
         assert!((model.reference.chord - 0.2).abs() < 1e-3);
         assert!(model.panels.len() > 50);
+    }
+
+    /// Regression for the crash where changing bank angle on a large
+    /// imported mesh (whose panel count exceeds `MAX_PANELS`) would call
+    /// `PanelModel::build` with no size check at all, assembling a dense
+    /// tens-of-thousands-square `f64` AIC matrix and exhausting RAM instead
+    /// of failing gracefully. The cap must live INSIDE `build` (not just at
+    /// one call site like the initial import) so every caller -- a bank-angle
+    /// rebuild included -- is protected. Also asserts this returns quickly:
+    /// bailing before `build_body_aic` is what keeps a huge mesh from
+    /// hanging the request instead of just refusing it.
+    #[test]
+    fn build_rejects_meshes_over_the_panel_cap_without_hanging() {
+        let mesh = smooth_symmetric_wing(1.0, 0.2, 0.02, 60, 60);
+        assert!(mesh.triangles.len() > MAX_PANELS, "fixture should exceed the cap to exercise it");
+
+        let start = std::time::Instant::now();
+        let result = PanelModel::build(&mesh, PanelConfig::default());
+        assert!(start.elapsed().as_secs() < 2, "should reject immediately, not attempt the O(n^2) AIC assembly");
+
+        match result {
+            Err(PanelError::TooManyPanels { count, max }) => {
+                assert_eq!(max, MAX_PANELS);
+                assert_eq!(count, mesh.triangles.len());
+            }
+            Err(other) => panic!("expected TooManyPanels, got {other:?}"),
+            Ok(_) => panic!("expected build to reject a mesh over the panel cap"),
+        }
     }
 
     /// Demonstrates the bug `PanelConfig::fixed_reference` exists to fix:
