@@ -25,7 +25,6 @@ export function downloadUrlFor(assetName: string): string {
 
 export const WINDOWS_ASSET = "rekon-app-x86_64-pc-windows-msvc.exe";
 export const MAC_ASSET_ARM = "rekon-app-aarch64-apple-darwin";
-export const MAC_ASSET_X86 = "rekon-app-x86_64-apple-darwin";
 
 /** Fetched via `curl` rather than a browser click so the file never picks up
  * macOS's quarantine flag -- without a paid Apple Developer ID to notarize
@@ -34,10 +33,16 @@ export const MAC_ASSET_X86 = "rekon-app-x86_64-apple-darwin";
  * skip that flag entirely (it's only set by the browser's own download API),
  * so this is the one way to get a clean, warning-free first run without
  * paying for notarization. The build is still ad-hoc signed in CI -- Apple
- * Silicon refuses to run an entirely unsigned binary at all. */
+ * Silicon refuses to run an entirely unsigned binary at all.
+ *
+ * Apple Silicon (arm64) only -- Intel Mac builds aren't published (the CI
+ * runner pool for them queues indefinitely, and it isn't a priority), so
+ * this checks the chip up front rather than silently handing an Intel user
+ * a binary that won't run. */
 export function macInstallCommand(): string {
   return [
-    `curl -fsSL -o rekon-app "$( [ "$(uname -m)" = "arm64" ] && echo '${downloadUrlFor(MAC_ASSET_ARM)}' || echo '${downloadUrlFor(MAC_ASSET_X86)}' )"`,
+    `[ "$(uname -m)" = "arm64" ] || { echo "Rekon only ships an Apple Silicon (arm64) build."; exit 1; }`,
+    `curl -fsSL -o rekon-app "${downloadUrlFor(MAC_ASSET_ARM)}"`,
     `chmod +x rekon-app`,
     `xattr -d com.apple.quarantine rekon-app 2>/dev/null`,
     `./rekon-app`,

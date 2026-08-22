@@ -108,7 +108,7 @@ export function DownloadSection() {
               <Apple className="size-5" />
             </div>
             <CardTitle className="mt-3 text-lg tracking-tight">macOS Desktop App</CardTitle>
-            <CardDescription>Apple Silicon &amp; Intel, universal install script — run the same solver locally.</CardDescription>
+            <CardDescription>Apple Silicon, one-line Terminal install — run the same solver locally.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <ReleaseStatus release={release} />

@@ -12,7 +12,7 @@ Rekon is built for people designing RC flying-wing aircraft who want real lift/d
 - Accepts STL geometry import (with manual axis/unit override when auto-detection guesses wrong) or a built-in NACA 4/5-digit airfoil and wing generator (span, taper, sweep, dihedral, washout).
 - Supports a real banked-flight animation: each frame is a genuine re-solve (fresh panel-method factorization plus a full LBM run) on the mesh rotated to that frame's bank angle, not a cosmetic overlay.
 - The hosted web page at rekoncfd.vercel.app is a preview shell only -- it has no backend of its own to solve anything against. The actual solvers only run inside the downloaded desktop app, which starts a local server on 127.0.0.1 and serves the same UI fully offline.
-- Desktop app ships for Windows (a single unsigned .exe, no installer) and macOS (Apple Silicon or Intel, installed via a Terminal one-liner since there's no Apple Developer ID to notarize against yet). Both check GitHub Releases on launch and update themselves in place.
+- Desktop app ships for Windows (a single unsigned .exe, no installer) and macOS on Apple Silicon (installed via a Terminal one-liner since there's no Apple Developer ID to notarize against yet). Both check GitHub Releases on launch and update themselves in place.
 
 ## Pages
 

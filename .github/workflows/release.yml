@@ -1,7 +1,8 @@
 name: Release
 
-# Builds the standalone desktop app for Windows and macOS (Apple Silicon +
-# Intel) and attaches them to the GitHub Release for the pushed tag. Bump
+# Builds the standalone desktop app for Windows and macOS (Apple Silicon
+# only -- see the matrix comment below) and attaches them to the GitHub
+# Release for the pushed tag. Bump
 # the version in the root Cargo.toml's [workspace.package], commit, then
 # push a matching `vX.Y.Z` tag to cut a release -- self_update (Rust side)
 # and fetchLatestRelease (web side) both key off the same GitHub Releases
@@ -31,13 +32,12 @@ jobs:
             target: x86_64-pc-windows-msvc
             asset_name: rekon-app-x86_64-pc-windows-msvc.exe
             built_name: rekon-app.exe
+          # Apple Silicon only: macos-13 (Intel) runners were observed
+          # queuing indefinitely (GitHub has been shrinking that fleet), and
+          # Intel Mac support isn't a priority for this project.
           - os: macos-latest # arm64 (Apple Silicon) runner
             target: aarch64-apple-darwin
             asset_name: rekon-app-aarch64-apple-darwin
-            built_name: rekon-app
-          - os: macos-13 # x86_64 (Intel) runner
-            target: x86_64-apple-darwin
-            asset_name: rekon-app-x86_64-apple-darwin
             built_name: rekon-app
 
     runs-on: ${{ matrix.os }}

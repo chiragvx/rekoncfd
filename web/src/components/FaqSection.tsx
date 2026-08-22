@@ -35,7 +35,7 @@ export const FAQS: FaqEntry[] = [
   },
   {
     q: "What platforms does the desktop app support?",
-    a: "Windows, as a single standalone .exe with no installer or admin rights required, and macOS (Apple Silicon or Intel), installed via a short Terminal command.",
+    a: "Windows, as a single standalone .exe with no installer or admin rights required, and macOS on Apple Silicon, installed via a short Terminal command.",
   },
 ];
 
