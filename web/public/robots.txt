@@ -1,0 +1,43 @@
+# Rekon CFD -- open crawl policy, including AI/LLM crawlers.
+# The tool itself (/tool) requires a locally-running solver to do anything
+# useful, but its own page shell is still fine to index.
+User-agent: *
+Allow: /
+
+# Common AI/LLM crawlers and answer-engine agents -- explicitly allowed
+# rather than left to each bot's own default, since a few of these have
+# started defaulting to disallow in other sites' robots.txt.
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+Sitemap: https://rekoncfd.vercel.app/sitemap.xml

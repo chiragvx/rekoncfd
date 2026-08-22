@@ -4,6 +4,7 @@ import { ArrowRight, Compass, LoaderCircle, Wind } from "lucide-react";
 
 import { engine } from "@/lib/engine";
 import { SiteHeader } from "@/components/SiteHeader";
+import { SiteFooter } from "@/components/SiteFooter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,6 +119,7 @@ export function ExplorePage() {
           </div>
         )}
       </section>
+      <SiteFooter />
     </div>
   );
 }

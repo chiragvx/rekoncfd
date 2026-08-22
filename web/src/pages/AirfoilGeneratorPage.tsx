@@ -5,6 +5,7 @@ import { LoaderCircle, Sparkles } from "lucide-react";
 import { engine } from "@/lib/engine";
 import type { PreviewAirfoil } from "@/lib/airfoilPreview";
 import { SiteHeader } from "@/components/SiteHeader";
+import { SiteFooter } from "@/components/SiteFooter";
 import { AirfoilPreview } from "@/components/AirfoilPreview";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -266,6 +267,7 @@ export function AirfoilGeneratorPage() {
           </Card>
         </div>
       </section>
+      <SiteFooter />
     </div>
   );
 }

@@ -29,7 +29,7 @@ export function SiteHeader() {
               to={link.to}
               className={({ isActive }) =>
                 cn(
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  "hidden rounded-md px-3 py-1.5 text-sm font-medium transition-colors sm:block",
                   isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground",
                 )
               }
@@ -37,7 +37,7 @@ export function SiteHeader() {
               {link.label}
             </NavLink>
           ))}
-          <Button asChild size="sm" className="ml-2">
+          <Button asChild size="sm" className="ml-0 sm:ml-2">
             <NavLink to="/tool">Open Tool</NavLink>
           </Button>
         </nav>

@@ -3,6 +3,7 @@ import { Box, Download, LoaderCircle, Monitor } from "lucide-react";
 
 import { downloadUrlFor, fetchLatestRelease, type LatestRelease } from "@/lib/release";
 import { SiteHeader } from "@/components/SiteHeader";
+import { SiteFooter } from "@/components/SiteFooter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -121,6 +122,7 @@ export function DownloadPage() {
           </Card>
         </div>
       </section>
+      <SiteFooter />
     </div>
   );
 }
