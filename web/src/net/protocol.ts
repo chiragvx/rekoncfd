@@ -88,23 +88,25 @@ export function decodePanelResult(frame: DecodedFrame): DecodedPanelResult {
   };
 }
 
-/** `bankDeg` is a REAL geometric bank angle (the model is rotated within a
- * fixed-direction wind tunnel), not a cheap freestream-only parameter like
- * `alphaDeg`/`vInf` -- see `rekon-app`'s `panel::solve_panel_at_bank` doc
- * comment. The server only pays for a full panel-model rebuild when this
- * value actually CHANGES between messages, so it's safe to always send the
- * current bank angle here even while the user is only dragging alpha/V/CG. */
+/** `bankDeg`, `pitchDeg` (what the UI calls "AoA"), and `yawDeg` are all REAL
+ * geometric attitude angles (the model is rotated within a fixed-direction
+ * wind tunnel), not a cheap freestream-only parameter like `vInf` -- see
+ * `rekon-app`'s `panel::solve_panel_at_attitude` doc comment. The server
+ * only pays for a full panel-model rebuild when the (bank, pitch, yaw)
+ * TUPLE actually CHANGES between messages, so it's safe to always send the
+ * current attitude here even while the user is only dragging V/CG. */
 export function encodeSliderUpdate(
-  alphaDeg: number,
+  pitchDeg: number,
   vInf: number,
   cg: { x: number; y: number; z: number },
   bankDeg: number,
+  yawDeg: number,
 ): ArrayBuffer {
-  return encodeF32Frame(Tag.SliderUpdate, new Float32Array([alphaDeg, vInf, cg.x, cg.y, cg.z, bankDeg]));
+  return encodeF32Frame(Tag.SliderUpdate, new Float32Array([pitchDeg, vInf, cg.x, cg.y, cg.z, bankDeg, yawDeg]));
 }
 
-export function encodeSolveFlowFieldRequest(alphaDeg: number, vInf: number, bankDeg: number): ArrayBuffer {
-  return encodeF32Frame(Tag.SolveFlowFieldRequest, new Float32Array([alphaDeg, vInf, bankDeg]));
+export function encodeSolveFlowFieldRequest(pitchDeg: number, vInf: number, bankDeg: number, yawDeg: number): ArrayBuffer {
+  return encodeF32Frame(Tag.SolveFlowFieldRequest, new Float32Array([pitchDeg, vInf, bankDeg, yawDeg]));
 }
 
 /** Requests a trim search (Cm(alpha)=0) about the current slider CG/V.

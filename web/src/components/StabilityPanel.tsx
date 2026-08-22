@@ -69,6 +69,10 @@ export function StabilityPanel() {
         <Button size="sm" disabled={!enabled || trimBusy} onClick={findTrim} className="w-full">
           {trimBusy ? "Searching…" : "Find Trim"}
         </Button>
+        <p className="text-muted-foreground text-[0.7rem]">
+          Trim α and the polar sweep are both relative to the Flight Condition panel's current AoA/Bank/Yaw — not an
+          absolute angle from level.
+        </p>
 
         {trim ? (
           trim.ok ? (

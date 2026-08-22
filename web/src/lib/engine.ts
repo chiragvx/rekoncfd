@@ -33,11 +33,16 @@ import {
 } from "@/net/protocol";
 
 export interface SliderValues {
-  alphaDeg: number;
+  /** Real geometric pitch rotation (about the span axis) -- what the UI
+   * calls "AoA". See `RekonEngine.setAttitudeDeg`. */
+  pitchDeg: number;
   vInf: number;
   cg: { x: number; y: number; z: number };
-  /** Real geometric bank (roll) angle -- see `RekonEngine.setBankDeg`. */
+  /** Real geometric bank (roll) angle -- see `RekonEngine.setAttitudeDeg`. */
   bankDeg: number;
+  /** Real geometric yaw angle (about the up axis) -- see
+   * `RekonEngine.setAttitudeDeg`. */
+  yawDeg: number;
 }
 
 export interface AxisMappingSummary {
@@ -121,12 +126,11 @@ type EventMap = {
   trimResult: DecodedTrimResult;
   polarCurve: PolarPoint[];
   bankSweepFrame: MultiBankSweepFrame;
-  /** Fired whenever the model's bank angle changes -- live while dragging
-   * the viewport's rotate control (no solve yet), on a committed slider
-   * update, or from an applied bank-sweep frame -- so the rotate control's
-   * own displayed angle stays in sync regardless of which of those changed
-   * it. */
-  bankDeg: number;
+  /** Fired whenever the model's rendered attitude changes -- on a committed
+   * slider update, or from an applied bank-sweep frame -- so any display
+   * showing the current attitude stays in sync regardless of which of
+   * those changed it. */
+  attitudeDeg: { bankDeg: number; pitchDeg: number; yawDeg: number };
   /** Fired on every `sendSlider` call, whoever made it -- lets a display
    * (e.g. Flight Condition's own sliders) stay in sync when something OTHER
    * than the user dragging that exact control changed the values, such as
@@ -189,7 +193,7 @@ class RekonEngine {
    * slider state -- can request a solve at the currently-displayed
    * condition without either panel needing a prop-drilled reference to
    * the other. */
-  private lastSliderValues: SliderValues = { alphaDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 }, bankDeg: 0 };
+  private lastSliderValues: SliderValues = { pitchDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 }, bankDeg: 0, yawDeg: 0 };
 
   /** The scene/socket/etc. are created ONCE (by whichever component mounts
    * first / survives StrictMode's double-invoke in dev) and never rebuilt --
@@ -241,18 +245,18 @@ class RekonEngine {
     });
 
     socket.on(Tag.MeshGeometry, (buffer) => {
-      // A fresh mesh should never inherit whatever bank angle a previous
+      // A fresh mesh should never inherit whatever attitude a previous
       // sweep animation left the group rotated to.
-      this.setBankDeg(0);
-      this.lastSliderValues = { ...this.lastSliderValues, bankDeg: 0 };
+      this.setAttitudeDeg(0, 0, 0);
+      this.lastSliderValues = { ...this.lastSliderValues, bankDeg: 0, pitchDeg: 0, yawDeg: 0 };
       const decoded = decodeMeshGeometry(buffer);
       const box = this.stlViewer!.setGeometry(decoded);
       this.focusCameraOn(box);
       this.emit("meshGeometry", decoded);
     });
     socket.on(Tag.MeshCleared, () => {
-      this.setBankDeg(0);
-      this.lastSliderValues = { ...this.lastSliderValues, bankDeg: 0 };
+      this.setAttitudeDeg(0, 0, 0);
+      this.lastSliderValues = { ...this.lastSliderValues, bankDeg: 0, pitchDeg: 0, yawDeg: 0 };
       this.stlViewer!.dispose();
       this.streamlines!.dispose();
       this.vorticityField!.dispose();
@@ -344,9 +348,9 @@ class RekonEngine {
 
   sendSlider(values: SliderValues) {
     this.lastSliderValues = values;
-    this.setBankDeg(values.bankDeg);
+    this.setAttitudeDeg(values.bankDeg, values.pitchDeg, values.yawDeg);
     this.emit("sliderValues", values);
-    this.socket?.send(encodeSliderUpdate(values.alphaDeg, values.vInf, values.cg, values.bankDeg));
+    this.socket?.send(encodeSliderUpdate(values.pitchDeg, values.vInf, values.cg, values.bankDeg, values.yawDeg));
   }
 
   getLastSliderValues(): SliderValues {
@@ -369,16 +373,22 @@ class RekonEngine {
     return this.lastImportSummary;
   }
 
-  /** Rotates the RENDERED model to `deg` instantly, client-side only -- no
-   * network round trip, no re-solve. Used for live visual feedback while
-   * dragging the viewport's rotate control (a full re-solve at a new bank
-   * angle costs a real panel-model rebuild, so it only happens once on
-   * release -- see `RotateControl`), and internally by `sendSlider`/
-   * `applyBankSweepFrame` to keep the rotate control's displayed angle in
-   * sync with whatever last actually changed the bank. */
-  setBankDeg(deg: number) {
-    if (this.bankGroup) this.bankGroup.rotation.x = THREE.MathUtils.degToRad(deg);
-    this.emit("bankDeg", deg);
+  /** Rotates the RENDERED model to this attitude, client-side only -- no
+   * network round trip, no re-solve (a full re-solve at a new attitude costs
+   * a real panel-model rebuild, which only happens when `sendSlider` commits
+   * a genuine bank/pitch/yaw change). Composes bank (about X), yaw (about
+   * Y), and pitch (about Z) as `qBank * qYaw * qPitch`, matching
+   * `rekon_geometry::Mesh::rotated_by_attitude`'s composition order exactly
+   * -- the rendered model and the server's actual solved geometry must
+   * always agree on what a given (bank, pitch, yaw) triple looks like. */
+  setAttitudeDeg(bankDeg: number, pitchDeg: number, yawDeg: number) {
+    if (this.bankGroup) {
+      const qBank = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(bankDeg));
+      const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(yawDeg));
+      const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), THREE.MathUtils.degToRad(pitchDeg));
+      this.bankGroup.quaternion.copy(qBank.multiply(qYaw).multiply(qPitch));
+    }
+    this.emit("attitudeDeg", { bankDeg, pitchDeg, yawDeg });
   }
 
   requestTrim(bracket?: { alphaLoDeg: number; alphaHiDeg: number }) {
@@ -412,8 +422,11 @@ class RekonEngine {
    * CL/CDi/Cm without its own separate animation-aware subscription. */
   applyBankSweepFrame(frame: MultiBankSweepFrame) {
     this.stlViewer?.setPressure(frame.surfaceCp);
-    this.setBankDeg(frame.bankDeg);
-    this.lastSliderValues = { ...this.lastSliderValues, bankDeg: frame.bankDeg };
+    // `frame.alphaDeg` is applied as a real PITCH rotation server-side now
+    // (see `ws::bank_sweep`), so the rendered model must rotate to match --
+    // yaw isn't part of this animation, so it stays at whatever it was.
+    this.setAttitudeDeg(frame.bankDeg, frame.alphaDeg, this.lastSliderValues.yawDeg);
+    this.lastSliderValues = { ...this.lastSliderValues, bankDeg: frame.bankDeg, pitchDeg: frame.alphaDeg };
 
     const sampler = new FieldSampler(frame);
     this.streamlines?.setField(sampler);
@@ -425,12 +438,16 @@ class RekonEngine {
   }
 
   /** Solves at the currently-displayed flight condition (the Flight
-   * Condition panel's last sent alpha/V, and the viewport rotate control's
-   * last committed bank angle) unless overridden. */
-  requestSolve(alphaDeg = this.lastSliderValues.alphaDeg, vInf = this.lastSliderValues.vInf, bankDeg = this.lastSliderValues.bankDeg) {
+   * Condition panel's last committed pitch/V/bank/yaw) unless overridden. */
+  requestSolve(
+    pitchDeg = this.lastSliderValues.pitchDeg,
+    vInf = this.lastSliderValues.vInf,
+    bankDeg = this.lastSliderValues.bankDeg,
+    yawDeg = this.lastSliderValues.yawDeg,
+  ) {
     this.solveStartedAt = performance.now();
     this.emit("solveStarted", undefined);
-    this.socket?.send(encodeSolveFlowFieldRequest(alphaDeg, vInf, bankDeg));
+    this.socket?.send(encodeSolveFlowFieldRequest(pitchDeg, vInf, bankDeg, yawDeg));
   }
 
   /** Ground grid and wind-tunnel wireframe are scene/environment chrome, not

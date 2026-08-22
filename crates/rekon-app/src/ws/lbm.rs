@@ -41,12 +41,20 @@ const MIN_TAU: f32 = 0.55;
 const MAX_TAU: f32 = 1.4;
 
 pub struct SolveRequest {
+    /// Real geometric pitch rotation (what the UI calls "AoA" -- see
+    /// `panel::solve_panel_at_attitude`'s doc comment). Named `alpha_deg`
+    /// here for wire-format continuity, but it rotates the mesh, not the
+    /// inlet flow direction -- `lattice_params` always uses alpha=0 for the
+    /// inlet now, since incidence is baked into the voxelized geometry.
     pub alpha_deg: f64,
     pub v_inf: f64,
-    /// Real geometric bank angle (see `panel::solve_panel_at_bank`'s doc
+    /// Real geometric bank angle (see `panel::solve_panel_at_attitude`'s doc
     /// comment) -- defaults to 0 for older clients that only ever send
     /// `[alpha_deg, v_inf]`, so this stays backward-compatible.
     pub bank_deg: f32,
+    /// Real geometric yaw angle -- same backward-compatible default as
+    /// `bank_deg`.
+    pub yaw_deg: f32,
 }
 
 pub fn decode_solve_request(payload: &[f32]) -> Option<SolveRequest> {
@@ -57,21 +65,24 @@ pub fn decode_solve_request(payload: &[f32]) -> Option<SolveRequest> {
         alpha_deg: payload[0] as f64,
         v_inf: payload[1] as f64,
         bank_deg: payload.get(2).copied().unwrap_or(0.0),
+        yaw_deg: payload.get(3).copied().unwrap_or(0.0),
     })
 }
 
-/// Maps the user's real AoA/airspeed and the mesh's chord estimate to a
-/// stable `(tau, u_inlet)` lattice configuration via Reynolds-number
-/// matching, clamped to a safe tau range — see the module-level doc comment.
-fn lattice_params(alpha_deg: f64, v_inf: f64, chord_m: f32, mean_cell_size_m: f32) -> (f32, Vec3) {
+/// Maps the user's real airspeed and the mesh's chord estimate to a stable
+/// `(tau, u_inlet)` lattice configuration via Reynolds-number matching,
+/// clamped to a safe tau range — see the module-level doc comment. The inlet
+/// always points straight along +X (no alpha tilt): incidence is expressed
+/// entirely as a real pitch rotation of the voxelized geometry now, not a
+/// tilted freestream, so tilting the inlet too would double-count it.
+fn lattice_params(v_inf: f64, chord_m: f32, mean_cell_size_m: f32) -> (f32, Vec3) {
     let chord_cells = (chord_m / mean_cell_size_m.max(1e-6)).max(1.0);
     let reynolds = (v_inf.max(1e-3) * chord_m as f64 / NU_AIR_M2_PER_S).max(1.0);
     let nu_lattice = (U_LATTICE as f64) * chord_cells as f64 / reynolds;
     let tau = (0.5 + nu_lattice / rekon_lbm::CS2 as f64) as f32;
     let tau = tau.clamp(MIN_TAU, MAX_TAU);
 
-    let alpha_rad = alpha_deg.to_radians() as f32;
-    let u_inlet = Vec3::new(U_LATTICE * alpha_rad.cos(), U_LATTICE * alpha_rad.sin(), 0.0);
+    let u_inlet = Vec3::new(U_LATTICE, 0.0, 0.0);
     (tau, u_inlet)
 }
 
@@ -90,27 +101,27 @@ pub(crate) enum LbmRunError {
     StoppedByCaller,
 }
 
-/// Voxelizes `mesh` into `domain`, configures a solver for `alpha_deg`/
-/// `v_inf`, and runs it to completion (or until `should_stop`) — the shared
-/// core of both the on-demand single solve (`run_solve`, below) and the
-/// bank-sweep animation's per-frame batch job (`ws::bank_sweep`): both just
-/// need "given this mesh + domain + condition, run LBM to completion and
-/// hand back the field", differing only in what they do with the result
-/// afterward (encode+send one `SolveResult`, vs. bundle it alongside a
-/// panel-method solve into one `MultiBankSweepFrame`) and in WHERE `domain`
-/// comes from -- `run_solve` computes it fresh from its one mesh, same as
-/// always, while the bank-sweep computes it ONCE (from the original,
-/// unrotated mesh) and passes that SAME domain for every rotated frame, so
-/// the wind-tunnel box never changes size/shape across a batch (see
-/// `pipeline::bank_invariant_domain`'s doc comment for why that matters).
-/// `mesh` is passed in (rather than always coming from a `MeshRecord`)
-/// specifically so the bank-sweep job can pass a ROTATED mesh — a real
-/// re-solve on rotated geometry, not the original.
+/// Voxelizes `mesh` into `domain`, configures a solver for `v_inf` (the
+/// mesh's own attitude already encodes any bank/pitch/yaw), and runs it to
+/// completion (or until `should_stop`) — the shared core of both the
+/// on-demand single solve (`run_solve`, below) and the bank-sweep
+/// animation's per-frame batch job (`ws::bank_sweep`): both just need "given
+/// this mesh + domain + condition, run LBM to completion and hand back the
+/// field", differing only in what they do with the result afterward
+/// (encode+send one `SolveResult`, vs. bundle it alongside a panel-method
+/// solve into one `MultiBankSweepFrame`) and in WHERE `domain` comes from --
+/// `run_solve` computes it fresh from its one mesh, same as always, while
+/// the bank-sweep computes it ONCE (from the original, unrotated mesh) and
+/// passes that SAME domain for every rotated frame, so the wind-tunnel box
+/// never changes size/shape across a batch (see
+/// `pipeline::attitude_invariant_domain`'s doc comment for why that
+/// matters). `mesh` is passed in (rather than always coming from a
+/// `MeshRecord`) specifically so the bank-sweep job can pass a ROTATED mesh
+/// — a real re-solve on rotated geometry, not the original.
 pub(crate) fn run_lbm_to_completion(
     mesh: &Mesh,
     domain: Aabb,
     chord_m: f32,
-    alpha_deg: f64,
     v_inf: f64,
     mut on_progress: impl FnMut(Progress),
     mut should_stop: impl FnMut() -> bool,
@@ -119,7 +130,7 @@ pub(crate) fn run_lbm_to_completion(
     let cell_size = grid.cell_size();
     let mean_cell_size = (cell_size.x + cell_size.y + cell_size.z) / 3.0;
 
-    let (tau, u_inlet) = lattice_params(alpha_deg, v_inf, chord_m, mean_cell_size);
+    let (tau, u_inlet) = lattice_params(v_inf, chord_m, mean_cell_size);
 
     let mut solver = Solver::new(grid, tau, u_inlet).map_err(LbmRunError::Solver)?;
 
@@ -154,32 +165,37 @@ pub fn run_solve(
     tx: Sender<Vec<u8>>,
 ) {
     let chord_m = record.chord_estimate_m;
-    // Bank is a real rotation of the mesh (see `panel::solve_panel_at_bank`'s
-    // doc comment) -- when nonzero this must use the ROTATION-INVARIANT
-    // domain sizing (`bank_invariant_domain`), or the wind-tunnel box would
-    // silently be undersized for whatever bank angle was actually solved.
-    // Wings-level (`bank_deg == 0`) keeps the original sizing exactly as
-    // before, so this is a pure extension, not a behavior change at bank=0.
+    // Bank/pitch/yaw are all real rotations of the mesh (see
+    // `panel::solve_panel_at_attitude`'s doc comment) -- when any is nonzero
+    // this must use the ROTATION-INVARIANT domain sizing
+    // (`attitude_invariant_domain`), or the wind-tunnel box would silently
+    // be undersized for whatever attitude was actually solved. Level flight
+    // (all three zero) keeps the original sizing exactly as before, so this
+    // is a pure extension, not a behavior change at the default attitude.
+    let any_rotation = request.bank_deg.abs() > 1e-6 || request.alpha_deg.abs() > 1e-6 || request.yaw_deg.abs() > 1e-6;
     let rotated_mesh;
-    let mesh: &Mesh = if request.bank_deg.abs() > 1e-6 {
-        rotated_mesh = record.mesh.rotated_around_x(request.bank_deg);
+    let mesh: &Mesh = if any_rotation {
+        rotated_mesh = record.mesh.rotated_by_attitude(request.bank_deg, request.alpha_deg as f32, request.yaw_deg);
         &rotated_mesh
     } else {
         &record.mesh
     };
-    let domain = if request.bank_deg.abs() > 1e-6 {
-        pipeline::bank_invariant_domain(&record.mesh, chord_m.max(0.05) * 4.0)
+    let domain = if any_rotation {
+        pipeline::attitude_invariant_domain(&record.mesh, chord_m.max(0.05) * 4.0)
     } else {
         pipeline::default_wind_tunnel_domain(mesh, chord_m.max(0.05) * 4.0)
     };
 
     let tx_progress = tx.clone();
     let current_gen_check = current_generation.clone();
+    // `mesh` already bakes `request.alpha_deg` in as a pitch rotation above,
+    // so the inlet flow direction stays straight (`lattice_params` no longer
+    // takes an alpha at all) -- tilting it too would double-count the
+    // incidence angle.
     let result = run_lbm_to_completion(
         mesh,
         domain,
         chord_m,
-        request.alpha_deg,
         request.v_inf,
         move |p: Progress| {
             let payload = [p.step as f32, p.max_steps as f32, p.max_velocity, p.mean_density];

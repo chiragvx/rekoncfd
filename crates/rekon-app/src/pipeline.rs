@@ -196,39 +196,34 @@ pub(crate) fn default_wind_tunnel_domain(mesh: &Mesh, span: f32) -> Aabb {
     bbox.expanded_by(margin)
 }
 
-/// A wind-tunnel domain sized to stay valid across ANY rotation around the
-/// X (flow) axis -- unlike `default_wind_tunnel_domain`, whose Y/Z margins
-/// are added to the mesh's own (rotation-DEPENDENT) bbox extents, so a
-/// domain sized from a rotated mesh comes out a different shape than one
-/// sized from the original.
+/// A wind-tunnel domain sized to stay valid across ANY combination of bank
+/// (roll about X), pitch (about Z), and yaw (about Y) -- unlike
+/// `default_wind_tunnel_domain`, whose margins are added to the mesh's own
+/// (rotation-DEPENDENT) bbox extents, so a domain sized from a rotated mesh
+/// comes out a different shape than one sized from the original.
 ///
 /// Used by the bank-sweep animation, which computes this ONCE from the
 /// original (unrotated) mesh and reuses the identical domain for every
 /// frame's voxelization -- see `ws::bank_sweep`'s doc comment for why the
-/// domain must stay fixed across bank angles rather than being resized per
-/// frame.
-pub(crate) fn bank_invariant_domain(mesh: &Mesh, span: f32) -> Aabb {
+/// domain must stay fixed across attitude changes rather than being resized
+/// per frame. Named for what it guarantees (attitude-invariant), not for
+/// which single angle it was originally written to handle -- earlier this
+/// only needed to survive rotation around one fixed axis (bank), so it
+/// measured reach in the Y-Z plane only; now that pitch and yaw can move
+/// mass into/out of X too, reach is measured in full 3D from the mesh's own
+/// centroid, and the resulting box is a cube (equal margin on every axis)
+/// rather than a cylinder-around-X -- the only shape genuinely invariant to
+/// rotation about any axis through the center.
+pub(crate) fn attitude_invariant_domain(mesh: &Mesh, span: f32) -> Aabb {
     let bbox = mesh.bounding_box();
     let center = bbox.center();
-    // Max distance from the X axis through the mesh's own bbox center --
-    // rotation-invariant, so a domain built from it fits the mesh at any
-    // bank angle, not just its current (bank=0) orientation.
-    let reach = mesh
-        .vertices
-        .iter()
-        .map(|v| {
-            let dy = v.y - center.y;
-            let dz = v.z - center.z;
-            (dy * dy + dz * dz).sqrt()
-        })
-        .fold(0.0f32, f32::max);
+    let reach = mesh.vertices.iter().map(|&v| (v - center).length()).fold(0.0f32, f32::max);
 
-    let x_margin = (span * 0.6).max(0.05);
-    let yz_half_extent = (reach + span * 0.3).max(0.05);
+    let half_extent = (reach + span * 0.6).max(0.05);
 
     Aabb {
-        min: Vec3::new(bbox.min.x - x_margin, center.y - yz_half_extent, center.z - yz_half_extent),
-        max: Vec3::new(bbox.max.x + x_margin, center.y + yz_half_extent, center.z + yz_half_extent),
+        min: center - Vec3::splat(half_extent),
+        max: center + Vec3::splat(half_extent),
     }
 }
 
@@ -255,12 +250,12 @@ mod domain_tests {
     }
 
     #[test]
-    fn bank_invariant_domain_has_same_size_regardless_of_mesh_rotation() {
+    fn attitude_invariant_domain_has_same_size_regardless_of_mesh_rotation() {
         let mesh = flat_wing_mesh(1.2, 0.25, 0.02);
-        let rotated = mesh.rotated_around_x(37.0);
+        let rotated = mesh.rotated_by_attitude(37.0, 22.0, -14.0);
 
-        let size_a = bank_invariant_domain(&mesh, 0.25 * 4.0).size();
-        let size_b = bank_invariant_domain(&rotated, 0.25 * 4.0).size();
+        let size_a = attitude_invariant_domain(&mesh, 0.25 * 4.0).size();
+        let size_b = attitude_invariant_domain(&rotated, 0.25 * 4.0).size();
 
         assert!((size_a.x - size_b.x).abs() < 1e-4, "X extent should match: {size_a:?} vs {size_b:?}");
         assert!((size_a.y - size_b.y).abs() < 1e-4, "Y extent should match: {size_a:?} vs {size_b:?}");
@@ -268,19 +263,27 @@ mod domain_tests {
     }
 
     #[test]
-    fn bank_invariant_domain_contains_the_mesh_at_every_rotation() {
+    fn attitude_invariant_domain_contains_the_mesh_at_every_bank_pitch_yaw_combination() {
         // The real usage pattern: compute the domain ONCE from the original
-        // mesh, then reuse it for every bank-rotated frame -- it must still
-        // fully contain the mesh no matter how far that frame is rotated.
+        // mesh, then reuse it for every rotated frame -- it must still fully
+        // contain the mesh no matter how far bank/pitch/yaw rotate it.
         let mesh = flat_wing_mesh(1.2, 0.25, 0.02);
-        let domain = bank_invariant_domain(&mesh, 0.25 * 4.0);
+        let domain = attitude_invariant_domain(&mesh, 0.25 * 4.0);
 
-        for degrees in [0.0, 15.0, 45.0, 90.0, 135.0, 180.0] {
-            let rotated = mesh.rotated_around_x(degrees);
+        for (bank, pitch, yaw) in [
+            (0.0, 0.0, 0.0),
+            (15.0, 0.0, 0.0),
+            (0.0, 20.0, 0.0),
+            (0.0, 0.0, 25.0),
+            (45.0, 30.0, 60.0),
+            (90.0, 90.0, 90.0),
+            (135.0, -40.0, 170.0),
+        ] {
+            let rotated = mesh.rotated_by_attitude(bank, pitch, yaw);
             for v in &rotated.vertices {
                 assert!(
                     v.x >= domain.min.x && v.x <= domain.max.x && v.y >= domain.min.y && v.y <= domain.max.y && v.z >= domain.min.z && v.z <= domain.max.z,
-                    "vertex {v:?} at {degrees} degrees bank falls outside the fixed domain {domain:?}"
+                    "vertex {v:?} at bank={bank} pitch={pitch} yaw={yaw} falls outside the fixed domain {domain:?}"
                 );
             }
         }

@@ -11,11 +11,7 @@ import { Slider } from "@/components/ui/slider";
 // sends regardless of the throttle window, so the final value is never lost.
 const THROTTLE_MS = 33;
 
-// bankDeg here is a placeholder only -- this panel has no bank UI of its own
-// (that lives in the viewport's RotateControl) and `fire` below always
-// overwrites it with the engine's live value before sending, so changing
-// alpha/V/CG here can never silently reset whatever bank the user last set.
-const DEFAULT_VALUES: SliderValues = { alphaDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 }, bankDeg: 0 };
+const DEFAULT_VALUES: SliderValues = { pitchDeg: 0, vInf: 15, cg: { x: 0, y: 0, z: 0 }, bankDeg: 0, yawDeg: 0 };
 
 /** CL/CDi/Cm live in `OutputBar`, pinned under the viewport -- not here, so
  * this panel is purely inputs and can collapse away without hiding the one
@@ -52,9 +48,7 @@ export function FlightConditionPanel({ chordEstimateM }: { chordEstimateM: numbe
     const now = performance.now();
     if (!force && now - lastSentRef.current < THROTTLE_MS) return;
     lastSentRef.current = now;
-    // Always the engine's live bank angle, never this panel's own (always-0)
-    // placeholder -- see DEFAULT_VALUES's comment.
-    engine.sendSlider({ ...next, bankDeg: engine.getLastSliderValues().bankDeg });
+    engine.sendSlider(next);
   }
 
   function update(patch: Partial<SliderValues> | { cg: Partial<SliderValues["cg"]> }, commit: boolean) {
@@ -67,6 +61,22 @@ export function FlightConditionPanel({ chordEstimateM }: { chordEstimateM: numbe
     fire(next, commit);
   }
 
+  // Bank/AoA(pitch)/Yaw are real geometry rotations -- every commit rebuilds
+  // the panel model from scratch server-side (see
+  // `panel::solve_panel_at_attitude`), unlike the cheap V/CG fields `update`
+  // handles above. So dragging only moves the RENDERED model for free
+  // (`engine.setAttitudeDeg`, client-side, no network); the expensive real
+  // solve only fires once, on release.
+  function updateAttitude(patch: Partial<Pick<SliderValues, "bankDeg" | "pitchDeg" | "yawDeg">>, commit: boolean) {
+    const next: SliderValues = { ...values, ...patch };
+    setValues(next);
+    if (commit) {
+      engine.sendSlider(next);
+    } else {
+      engine.setAttitudeDeg(next.bankDeg, next.pitchDeg, next.yawDeg);
+    }
+  }
+
   return (
     <Card id="coach-flight-condition" className="w-full gap-3">
       <CardHeader>
@@ -76,12 +86,32 @@ export function FlightConditionPanel({ chordEstimateM }: { chordEstimateM: numbe
         <SliderRow
           label="AoA"
           unit="deg"
-          value={values.alphaDeg}
+          value={values.pitchDeg}
           min={-10}
           max={20}
           step={0.5}
-          onValueChange={(v) => update({ alphaDeg: v }, false)}
-          onValueCommit={(v) => update({ alphaDeg: v }, true)}
+          onValueChange={(v) => updateAttitude({ pitchDeg: v }, false)}
+          onValueCommit={(v) => updateAttitude({ pitchDeg: v }, true)}
+        />
+        <SliderRow
+          label="Bank"
+          unit="deg"
+          value={values.bankDeg}
+          min={-90}
+          max={90}
+          step={1}
+          onValueChange={(v) => updateAttitude({ bankDeg: v }, false)}
+          onValueCommit={(v) => updateAttitude({ bankDeg: v }, true)}
+        />
+        <SliderRow
+          label="Yaw"
+          unit="deg"
+          value={values.yawDeg}
+          min={-90}
+          max={90}
+          step={1}
+          onValueChange={(v) => updateAttitude({ yawDeg: v }, false)}
+          onValueCommit={(v) => updateAttitude({ yawDeg: v }, true)}
         />
         <SliderRow
           label="Airspeed"

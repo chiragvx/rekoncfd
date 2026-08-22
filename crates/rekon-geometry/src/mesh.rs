@@ -20,7 +20,26 @@ impl Mesh {
     /// mirroring, see `frame::FrameTransform::flips_winding`), and normals
     /// are always recomputed from winding, never stored.
     pub fn rotated_around_x(&self, degrees: f32) -> Mesh {
-        let rotation = glam::Quat::from_rotation_x(degrees.to_radians());
+        self.rotated_by_attitude(degrees, 0.0, 0.0)
+    }
+
+    /// Rigid rotation combining all three attitude angles the interactive
+    /// controls (and the bank-sweep animation) expose -- `bank_deg` (roll
+    /// about X, this crate's fixed flow axis), `pitch_deg` (about Z, the
+    /// span axis -- what the UI calls "AoA", now a real rotation of the
+    /// body rather than a freestream tilt, so the model visibly pitches),
+    /// and `yaw_deg` (about Y, the up axis). Applied as pitch, then yaw,
+    /// then bank (`bank ∘ yaw ∘ pitch`) -- since this always starts from
+    /// the same reference orientation rather than integrating from a prior
+    /// attitude, any fixed composition order is equally valid; this one
+    /// just needs to be applied consistently everywhere a combined attitude
+    /// is built. Same orientation-preserving guarantee as `rotated_around_x`
+    /// -- a composition of single-axis rotations is still orientation
+    /// preserving, so winding/normals need no separate correction.
+    pub fn rotated_by_attitude(&self, bank_deg: f32, pitch_deg: f32, yaw_deg: f32) -> Mesh {
+        let rotation = glam::Quat::from_rotation_x(bank_deg.to_radians())
+            * glam::Quat::from_rotation_y(yaw_deg.to_radians())
+            * glam::Quat::from_rotation_z(pitch_deg.to_radians());
         Mesh {
             vertices: self.vertices.iter().map(|&v| rotation * v).collect(),
             triangles: self.triangles.clone(),
@@ -172,6 +191,45 @@ mod tests {
     }
 
     #[test]
+    fn zero_attitude_is_identity() {
+        let mesh = unit_cube_mesh();
+        let rotated = mesh.rotated_by_attitude(0.0, 0.0, 0.0);
+        for (a, b) in mesh.vertices.iter().zip(&rotated.vertices) {
+            assert!((*a - *b).length() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn ninety_degree_pitch_maps_x_to_y() {
+        // Pitch rotates about Z (the span axis) -- nosing the wing up should
+        // rotate its chordwise (X) direction toward Y (up), same sense as
+        // `ninety_degrees_maps_y_to_z` above proves for bank about X.
+        let mesh = Mesh { vertices: vec![Vec3::new(1.0, 0.0, 0.0)], triangles: vec![] };
+        let rotated = mesh.rotated_by_attitude(0.0, 90.0, 0.0);
+        assert!((rotated.vertices[0] - Vec3::new(0.0, 1.0, 0.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn ninety_degree_yaw_maps_x_to_negative_z() {
+        // Yaw rotates about Y (the up axis).
+        let mesh = Mesh { vertices: vec![Vec3::new(1.0, 0.0, 0.0)], triangles: vec![] };
+        let rotated = mesh.rotated_by_attitude(0.0, 0.0, 90.0);
+        assert!((rotated.vertices[0] - Vec3::new(0.0, 0.0, -1.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn rotated_by_attitude_matches_rotated_around_x_when_pitch_and_yaw_are_zero() {
+        let mesh = unit_cube_mesh();
+        for degrees in [15.0, 45.0, 90.0, 180.0] {
+            let a = mesh.rotated_around_x(degrees);
+            let b = mesh.rotated_by_attitude(degrees, 0.0, 0.0);
+            for (va, vb) in a.vertices.iter().zip(&b.vertices) {
+                assert!((*va - *vb).length() < 1e-6, "bank-only attitude rotation should match rotated_around_x at {degrees} degrees");
+            }
+        }
+    }
+
+    #[test]
     fn rotation_preserves_outward_winding() {
         let mesh = unit_cube_mesh();
         assert!(signed_volume(&mesh) > 0.0, "fixture itself must be outward-oriented");
@@ -181,6 +239,19 @@ mod tests {
             assert!(
                 signed_volume(&rotated) > 0.0,
                 "rotation by {degrees} degrees should never flip winding, got signed volume {}",
+                signed_volume(&rotated)
+            );
+        }
+    }
+
+    #[test]
+    fn combined_attitude_rotation_preserves_outward_winding() {
+        let mesh = unit_cube_mesh();
+        for (bank, pitch, yaw) in [(15.0, 8.0, -6.0), (45.0, -20.0, 30.0), (90.0, 45.0, 90.0), (180.0, 270.0, 135.0)] {
+            let rotated = mesh.rotated_by_attitude(bank, pitch, yaw);
+            assert!(
+                signed_volume(&rotated) > 0.0,
+                "combined bank={bank} pitch={pitch} yaw={yaw} should never flip winding, got signed volume {}",
                 signed_volume(&rotated)
             );
         }

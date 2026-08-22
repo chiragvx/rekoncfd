@@ -28,18 +28,23 @@ pub enum PanelError {
 /// quadrature, and the assembled matrix itself is n^2 `f64`s -- 8 bytes *
 /// 50,000^2 is already 20GB) and its system-matrix factorization is O(n^3)
 /// -- measured (release build) at 2.1s/2128 panels, 21.0s/4104 panels,
-/// 166.8s/8056 panels, matching that cubic scaling almost exactly. A "tens
-/// of thousands of panels" mesh -- an easy STL triangle count for anything
-/// beyond a simple test wing -- extrapolates to hours of compute and tens of
-/// GB of RAM, which is what changing the bank angle on a huge imported mesh
-/// used to do: unlike the initial import (which skips the panel-method
-/// solve above this same cap, see `rekon-app`'s `pipeline::finalize`), a
-/// bank-angle rebuild used to call `PanelModel::build` completely unchecked,
-/// crashing the machine instead of failing gracefully. Enforcing the cap
-/// HERE, inside `build` itself, is what makes it impossible for any current
-/// or future caller (`pipeline::finalize`, an interactive bank-angle change,
-/// one frame of the animated bank sweep -- all of them) to bypass it.
-pub const MAX_PANELS: usize = 3000;
+/// 166.8s/8056 panels, matching that cubic scaling almost exactly. Set at
+/// the last of those measured points: a real STL export can easily carry
+/// several thousand triangles, and 8056 panels' ~167s worst case (paid only
+/// once per genuine attitude CHANGE commit -- see `panel::solve_panel_at_attitude`
+/// -- not per frame of dragging) buys meaningfully higher-resolution meshes
+/// a live solve without extrapolating into genuinely unbounded territory. A
+/// "tens of thousands of panels" mesh still extrapolates to hours of compute
+/// and tens of GB of RAM, which is what changing the bank angle on a huge
+/// imported mesh used to do: unlike the initial import (which skips the
+/// panel-method solve above this same cap, see `rekon-app`'s
+/// `pipeline::finalize`), a bank-angle rebuild used to call
+/// `PanelModel::build` completely unchecked, crashing the machine instead of
+/// failing gracefully. Enforcing the cap HERE, inside `build` itself, is
+/// what makes it impossible for any current or future caller
+/// (`pipeline::finalize`, an interactive attitude change, one frame of the
+/// animated bank sweep -- all of them) to bypass it.
+pub const MAX_PANELS: usize = 8000;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PanelConfig {
@@ -429,6 +434,25 @@ mod tests {
             assert_eq!(model.reference.area, base_reference.area, "area should be pinned at {degrees} degrees bank");
             assert_eq!(model.reference.chord, base_reference.chord, "chord should be pinned at {degrees} degrees bank");
             assert_eq!(model.reference.span, base_reference.span, "span should be pinned at {degrees} degrees bank");
+        }
+    }
+
+    /// Same fix, now exercised through `rotated_by_attitude` (bank+pitch+yaw
+    /// combined) -- the new attitude control set (pitch/yaw now real
+    /// rotations alongside bank) must not accidentally bypass this pin.
+    #[test]
+    fn fixed_reference_survives_combined_bank_pitch_yaw_rotation() {
+        let mesh = symmetric_diamond_wing(1.0, 0.2, 0.02, 10);
+        let base_reference = PanelModel::build(&mesh, PanelConfig::default()).expect("builds").reference;
+
+        for (bank, pitch, yaw) in [(15.0, 8.0, -6.0), (45.0, -20.0, 30.0), (90.0, 45.0, 90.0)] {
+            let rotated = mesh.rotated_by_attitude(bank, pitch, yaw);
+            let config = PanelConfig { fixed_reference: Some(base_reference), ..PanelConfig::default() };
+            let model = PanelModel::build(&rotated, config).expect("builds");
+
+            assert_eq!(model.reference.area, base_reference.area, "area should be pinned at bank={bank} pitch={pitch} yaw={yaw}");
+            assert_eq!(model.reference.chord, base_reference.chord, "chord should be pinned at bank={bank} pitch={pitch} yaw={yaw}");
+            assert_eq!(model.reference.span, base_reference.span, "span should be pinned at bank={bank} pitch={pitch} yaw={yaw}");
         }
     }
 }

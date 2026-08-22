@@ -11,7 +11,6 @@ import { DownloadPromptModal } from "@/components/DownloadPromptModal";
 import { CoachMarks } from "@/components/CoachMarks";
 import { SignInGate } from "@/components/SignInGate";
 import { ViewportToolbar } from "@/components/ViewportToolbar";
-import { RotateControl } from "@/components/RotateControl";
 import { OutputBar } from "@/components/OutputBar";
 import { ImportPanel } from "@/components/ImportPanel";
 import { FlightConditionPanel } from "@/components/FlightConditionPanel";
@@ -97,7 +96,6 @@ function ToolPageContent() {
           <div className="relative min-h-0 flex-1 overflow-hidden rounded-[32px] border">
             <Viewport />
             <ViewportToolbar />
-            <RotateControl />
           </div>
           <OutputBar />
         </div>

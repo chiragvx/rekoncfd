@@ -20,7 +20,7 @@ use tokio::sync::mpsc::Sender;
 use crate::pipeline;
 use crate::state::MeshRecord;
 use crate::ws::lbm::{run_lbm_to_completion, LbmFrameResult, LbmRunError};
-use crate::ws::panel::{solve_panel_at_bank, SliderState};
+use crate::ws::panel::{solve_panel_at_attitude, SliderState};
 
 pub struct BankSweepRequest {
     pub alpha_min_deg: f64,
@@ -100,13 +100,13 @@ pub fn run(
 
     // The LBM domain must stay a fixed box across the whole animation, or the
     // wind-tunnel wireframe visibly resizes every frame -- computed ONCE here
-    // (rotation-invariant, see `pipeline::bank_invariant_domain`'s doc
+    // (rotation-invariant, see `pipeline::attitude_invariant_domain`'s doc
     // comment) and passed unchanged into every frame's `run_lbm_to_completion`
     // call below. (The reference-quantities fix -- keeping CL/CD/Cm's
     // normalization from a rotated mesh's shrunken/corrupted planform area --
-    // lives inside `solve_panel_at_bank`, shared with the interactive
-    // single-bank solve in `connection.rs`.)
-    let domain = pipeline::bank_invariant_domain(base_mesh, chord_m.max(0.05) * 4.0);
+    // lives inside `solve_panel_at_attitude`, shared with the interactive
+    // single-attitude solve in `connection.rs`.)
+    let domain = pipeline::attitude_invariant_domain(base_mesh, chord_m.max(0.05) * 4.0);
 
     for i in 0..n {
         if current_generation.load(Ordering::Relaxed) != generation {
@@ -117,28 +117,35 @@ pub fn run(
         let alpha_deg = request.alpha_min_deg + (request.alpha_max_deg - request.alpha_min_deg) * t;
         let bank_deg = request.bank_min_deg + (request.bank_max_deg - request.bank_min_deg) * (t as f32);
 
-        // Same routine the interactive single-bank solve in `connection.rs`
-        // calls for one drag commit -- here it's just called once per frame
-        // in a loop instead of once on demand.
-        let freestream = Freestream { alpha_deg, v_inf: slider.freestream.v_inf };
-        let panel_solve = match solve_panel_at_bank(&record, bank_deg, freestream, slider.cg) {
+        // Same routine the interactive single-attitude solve in
+        // `connection.rs` calls for one drag commit -- here it's just called
+        // once per frame in a loop instead of once on demand. Alpha is
+        // expressed as a real PITCH rotation (freestream stays alpha=0), same
+        // as every other interactive attitude solve -- this costs nothing
+        // extra here specifically, since a full rebuild already happens
+        // every frame for the bank rotation regardless.
+        let freestream = Freestream { alpha_deg: 0.0, v_inf: slider.freestream.v_inf };
+        let pitch_deg = alpha_deg as f32;
+        let panel_solve = match solve_panel_at_attitude(&record, bank_deg, pitch_deg, 0.0, freestream, slider.cg) {
             Ok(s) => s,
             Err(err) => {
-                tracing::warn!(frame = i, bank_deg, %err, "bank-sweep frame's panel solve failed, skipping frame");
+                tracing::warn!(frame = i, bank_deg, pitch_deg, %err, "bank-sweep frame's panel solve failed, skipping frame");
                 continue;
             }
         };
         let coeffs = panel_solve.coeffs;
         let vertex_cp = panel_solve.vertex_cp;
-        let rotated = base_mesh.rotated_around_x(bank_deg);
+        let rotated = base_mesh.rotated_by_attitude(bank_deg, pitch_deg, 0.0);
 
         let tx_progress = tx.clone();
         let current_gen_check = current_generation.clone();
+        // `rotated` already bakes `pitch_deg` into the geometry, so the LBM
+        // inlet (which no longer takes an alpha at all) stays straight --
+        // tilting it too would double-count the incidence angle.
         let lbm_result = run_lbm_to_completion(
             &rotated,
             domain,
             chord_m,
-            alpha_deg,
             slider.freestream.v_inf,
             move |p| {
                 let payload = [p.step as f32, p.max_steps as f32, p.max_velocity, p.mean_density];
