@@ -2,13 +2,14 @@ import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
 import type { ImportSummary } from "@/lib/engine";
-import { AuthProvider } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { Viewport } from "@/components/Viewport";
 import { ToolNav } from "@/components/ToolNav";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { DownloadPromptModal } from "@/components/DownloadPromptModal";
 import { CoachMarks } from "@/components/CoachMarks";
+import { SignInGate } from "@/components/SignInGate";
 import { ViewportToolbar } from "@/components/ViewportToolbar";
 import { RotateControl } from "@/components/RotateControl";
 import { OutputBar } from "@/components/OutputBar";
@@ -49,54 +50,78 @@ function Sidebar({ children }: { children: ReactNode }) {
 }
 
 export function ToolPage() {
+  return (
+    <AuthProvider>
+      <ToolPageGate />
+    </AuthProvider>
+  );
+}
+
+/** Sign-in is required to use the tool at all -- applies equally to the
+ * hosted web build and the desktop .exe, since both run this exact same
+ * route. Only actually enforced when a Supabase project is connected
+ * (`isSupabaseConfigured`): a build with no Supabase project has no way for
+ * anyone to ever sign in, so it falls back to open access rather than
+ * permanently locking everyone out. */
+function ToolPageGate() {
+  const { user, loading } = useAuth();
+
+  if (isSupabaseConfigured && loading) {
+    return <div className="bg-background fixed inset-0" />;
+  }
+  if (isSupabaseConfigured && !user) {
+    return <SignInGate />;
+  }
+  return <ToolPageContent />;
+}
+
+function ToolPageContent() {
   const [chordEstimateM, setChordEstimateM] = useState<number | null>(null);
 
   return (
-    <AuthProvider>
-      <div className="fixed inset-0 flex flex-col">
-        <ToolNav />
-        <UpdateBanner />
-        <DownloadPromptModal />
-        <CoachMarks />
+    <div className="fixed inset-0 flex flex-col">
+      <ToolNav />
+      <UpdateBanner />
+      <DownloadPromptModal />
+      <CoachMarks />
 
-        <div className="flex flex-1 gap-4 overflow-hidden px-4 pb-4 pt-[4.5rem]">
-          <Sidebar>
-            <Section label="Flow Field">
-              <SolvePanel />
-              <VisualizationPanel />
-            </Section>
-          </Sidebar>
+      <div className="flex flex-1 gap-4 overflow-hidden px-4 pb-4 pt-[4.5rem]">
+        <Sidebar>
+          <Section label="Flow Field">
+            <SolvePanel />
+            <VisualizationPanel />
+          </Section>
+        </Sidebar>
 
-          <div className="relative flex min-w-0 flex-1 flex-col gap-4">
-            <div className="relative min-h-0 flex-1 overflow-hidden rounded-[32px] border">
-              <Viewport />
-              <ViewportToolbar />
-              <RotateControl />
-            </div>
-            <OutputBar />
+        <div className="relative flex min-w-0 flex-1 flex-col gap-4">
+          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[32px] border">
+            <Viewport />
+            <ViewportToolbar />
+            <RotateControl />
           </div>
-
-          <Sidebar>
-            <Section label="Model">
-              <ImportPanel
-                onMeshSummaryChange={(summary: ImportSummary | null) => setChordEstimateM(summary?.chord_estimate_m ?? null)}
-              />
-            </Section>
-            <Section label="Aerodynamics">
-              <FlightConditionPanel chordEstimateM={chordEstimateM} />
-              <StabilityPanel />
-            </Section>
-            <Section label="Animation">
-              <SweepAnimationPanel />
-            </Section>
-            {isSupabaseConfigured && (
-              <Section label="Account">
-                <SaveProjectPanel />
-              </Section>
-            )}
-          </Sidebar>
+          <OutputBar />
         </div>
+
+        <Sidebar>
+          <Section label="Model">
+            <ImportPanel
+              onMeshSummaryChange={(summary: ImportSummary | null) => setChordEstimateM(summary?.chord_estimate_m ?? null)}
+            />
+          </Section>
+          <Section label="Aerodynamics">
+            <FlightConditionPanel chordEstimateM={chordEstimateM} />
+            <StabilityPanel />
+          </Section>
+          <Section label="Animation">
+            <SweepAnimationPanel />
+          </Section>
+          {isSupabaseConfigured && (
+            <Section label="Account">
+              <SaveProjectPanel />
+            </Section>
+          )}
+        </Sidebar>
       </div>
-    </AuthProvider>
+    </div>
   );
 }

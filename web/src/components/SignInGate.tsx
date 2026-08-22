@@ -1,18 +1,19 @@
 import { useState } from "react";
-import { createPortal } from "react-dom";
-import { X } from "lucide-react";
 
 import { signInWithEmail, signInWithGithub, signUpWithEmail } from "@/lib/auth";
+import { RekonMark } from "@/components/RekonMark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 
-/** GitHub OAuth + email/password sign-in, gated entirely on a Supabase
- * project actually being connected -- `AccountControl` never renders the
- * trigger that opens this until `isSupabaseConfigured` is true, so this
- * component itself doesn't need its own "not configured" state. */
-export function AuthModal({ onClose }: { onClose: () => void }) {
+/** Full-page sign-in gate shown instead of the Tool's own UI until the user
+ * is authenticated -- blocks BOTH the hosted web build and the desktop .exe
+ * equally, since they run the exact same React route. Only actually enforced
+ * when Supabase is configured at all (see `ToolPage`) -- a deployment with
+ * no Supabase project connected falls back to open access rather than
+ * locking everyone out with no way to ever sign in. */
+export function SignInGate() {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,7 +26,6 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       await signInWithGithub();
-      // Redirects the whole page to GitHub -- no further local state change.
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
@@ -39,7 +39,6 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
     try {
       if (mode === "sign-in") {
         await signInWithEmail(email, password);
-        onClose();
       } else {
         await signUpWithEmail(email, password);
         setConfirmSent(true);
@@ -51,35 +50,24 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  // `AccountControl` (this modal's only trigger today) lives inside ToolNav's
-  // `backdrop-blur-md` header -- a `backdrop-filter` ancestor becomes the
-  // containing block for `position: fixed` descendants per the CSS spec, so
-  // without a portal this modal would size/position itself against that
-  // ~64px header instead of the viewport, clipping most of its own content
-  // off-screen. Portalling to `document.body` sidesteps that regardless of
-  // where this component is ever mounted from.
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="border-border bg-card surface-elevated relative w-full max-w-sm rounded-2xl border p-6">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="text-muted-foreground hover:text-foreground absolute top-3 right-3 rounded-md p-1.5 transition-colors"
-        >
-          <X className="size-4" />
-        </button>
-
-        <h2 className="text-lg font-medium tracking-tight">Sign in to Rekon</h2>
-        <p className="text-muted-foreground mt-1 text-sm">Save projects and pick up where you left off.</p>
+  return (
+    <div className="bg-background fixed inset-0 flex items-center justify-center p-4">
+      <div className="border-border bg-card surface-elevated w-full max-w-sm rounded-2xl border p-8">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <RekonMark className="text-primary size-9" />
+          <h1 className="text-lg font-medium tracking-tight">Sign in to Rekon</h1>
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            The tool is only available to signed-in users -- create an account or continue with GitHub.
+          </p>
+        </div>
 
         {confirmSent ? (
-          <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
-            Check <span className="text-foreground">{email}</span> for a confirmation link, then sign in.
+          <p className="text-muted-foreground mt-6 text-center text-sm leading-relaxed">
+            Check <span className="text-foreground">{email}</span> for a confirmation link, then sign in below.
           </p>
         ) : (
           <>
-            <Button variant="outline" className="mt-5 w-full" disabled={busy} onClick={handleGithub}>
+            <Button variant="outline" className="mt-6 w-full" disabled={busy} onClick={handleGithub}>
               Continue with GitHub
             </Button>
 
@@ -91,11 +79,11 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
 
             <form onSubmit={handleEmailSubmit} className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="auth-email" className="text-xs font-normal">
+                <Label htmlFor="gate-email" className="text-xs font-normal">
                   Email
                 </Label>
                 <Input
-                  id="auth-email"
+                  id="gate-email"
                   type="email"
                   required
                   value={email}
@@ -104,11 +92,11 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="auth-password" className="text-xs font-normal">
+                <Label htmlFor="gate-password" className="text-xs font-normal">
                   Password
                 </Label>
                 <Input
-                  id="auth-password"
+                  id="gate-password"
                   type="password"
                   required
                   minLength={6}
@@ -131,14 +119,13 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
                 setMode((m) => (m === "sign-in" ? "sign-up" : "sign-in"));
                 setError(null);
               }}
-              className="text-muted-foreground hover:text-foreground mt-4 text-xs transition-colors"
+              className="text-muted-foreground hover:text-foreground mt-4 w-full text-center text-xs transition-colors"
             >
               {mode === "sign-in" ? "Need an account? Sign up" : "Already have an account? Sign in"}
             </button>
           </>
         )}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }
