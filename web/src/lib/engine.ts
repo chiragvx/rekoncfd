@@ -102,7 +102,6 @@ export interface VizState {
   vorticity: boolean;
   contour: boolean;
   seedPlane: boolean;
-  paused: boolean;
   planeAxis: SliceAxis;
   planePosition: number;
 }
@@ -113,7 +112,6 @@ export const DEFAULT_VIZ_STATE: VizState = {
   vorticity: false,
   contour: false,
   seedPlane: false,
-  paused: false,
   planeAxis: SliceAxis.X,
   planePosition: 0.1,
 };
@@ -232,7 +230,7 @@ class RekonEngine {
 
     this.stlViewer = new StlViewer(bankGroup);
     this.windTunnel = new WindTunnel(rs.scene);
-    this.streamlines = new Streamlines(rs.scene);
+    this.streamlines = new Streamlines(rs.scene, rs.renderer);
     this.vorticityField = new VorticityField(rs.scene);
     this.contourPlane = new ContourPlane(rs.scene);
     this.applyVizState(this.vizState);
@@ -300,7 +298,7 @@ class RekonEngine {
     });
     socket.connect();
 
-    startRenderLoop(rs, (dt) => this.streamlines?.update(dt));
+    startRenderLoop(rs, () => this.streamlines?.update());
   }
 
   private focusCameraOn(box: THREE.Box3) {
@@ -467,7 +465,6 @@ class RekonEngine {
     this.streamlines?.setVisible(state.streamlines);
     this.vorticityField?.setVisible(state.vorticity);
     this.contourPlane?.setVisible(state.contour);
-    this.streamlines?.setPaused(state.paused);
     this.streamlines?.setSeedPlane(state.seedPlane, state.planeAxis, state.planePosition);
     this.contourPlane?.setSlice(state.planeAxis, state.planePosition);
   }

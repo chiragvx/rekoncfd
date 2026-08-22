@@ -1,7 +1,6 @@
 import { useState } from "react";
 
 import { DEFAULT_VIZ_STATE, engine, SliceAxis, type VizState } from "@/lib/engine";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 
 const LAYERS: { key: "pressure" | "streamlines" | "vorticity" | "contour"; label: string }[] = [
   { key: "pressure", label: "Surface pressure" },
-  { key: "streamlines", label: "Streamlines (speed)" },
+  { key: "streamlines", label: "Streamlines (turbulence)" },
   { key: "vorticity", label: "Vorticity hotspots" },
   { key: "contour", label: "Speed contour plane" },
 ];
@@ -97,15 +96,6 @@ export function VisualizationPanel() {
             </span>
           </div>
         </div>
-
-        <Button
-          variant={state.paused ? "secondary" : "outline"}
-          size="sm"
-          onClick={() => apply({ ...state, paused: !state.paused })}
-          className={state.paused ? "border-warning/40 bg-warning/10 text-warning hover:bg-warning/15 w-full" : "w-full"}
-        >
-          {state.paused ? "Resume flow" : "Pause flow"}
-        </Button>
       </CardContent>
     </Card>
   );

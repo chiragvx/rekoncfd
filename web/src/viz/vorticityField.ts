@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import type { DecodedSolveResult } from "../net/protocol";
+import { computeVorticityMagnitudes } from "./fieldSampler";
 
 // Sequential "heat" colormap for a magnitude-only quantity (always >= 0) --
 // deliberately distinct from the pressure view's diverging blue-white-red
@@ -61,35 +62,15 @@ export class VorticityField {
     this.dispose();
 
     const [nx, ny, nz] = result.velDims;
-    const v = result.velocity;
     const [minX, minY, minZ] = result.domainMin;
     const [maxX, maxY, maxZ] = result.domainMax;
-    const dx = (maxX - minX) / nx;
-    const dy = (maxY - minY) / ny;
-    const dz = (maxZ - minZ) / nz;
-
-    // Clamped neighbor lookup -- gives one-sided differences at the domain
-    // boundary instead of wrapping or reading out of bounds.
-    const at = (xi: number, yi: number, zi: number, comp: number): number => {
-      const cx = Math.min(Math.max(xi, 0), nx - 1);
-      const cy = Math.min(Math.max(yi, 0), ny - 1);
-      const cz = Math.min(Math.max(zi, 0), nz - 1);
-      return v[(cx + nx * (cy + ny * cz)) * 3 + comp];
-    };
+    const domainSize = new THREE.Vector3(maxX - minX, maxY - minY, maxZ - minZ);
+    const dx = domainSize.x / nx;
+    const dy = domainSize.y / ny;
+    const dz = domainSize.z / nz;
 
     const cellCount = nx * ny * nz;
-    const mags = new Float32Array(cellCount);
-    for (let z = 0; z < nz; z++) {
-      for (let y = 0; y < ny; y++) {
-        for (let x = 0; x < nx; x++) {
-          // curl = (d(vz)/dy - d(vy)/dz, d(vx)/dz - d(vz)/dx, d(vy)/dx - d(vx)/dy)
-          const curlX = (at(x, y + 1, z, 2) - at(x, y - 1, z, 2)) / (2 * dy) - (at(x, y, z + 1, 1) - at(x, y, z - 1, 1)) / (2 * dz);
-          const curlY = (at(x, y, z + 1, 0) - at(x, y, z - 1, 0)) / (2 * dz) - (at(x + 1, y, z, 2) - at(x - 1, y, z, 2)) / (2 * dx);
-          const curlZ = (at(x + 1, y, z, 1) - at(x - 1, y, z, 1)) / (2 * dx) - (at(x, y + 1, z, 0) - at(x, y - 1, z, 0)) / (2 * dy);
-          mags[x + nx * (y + ny * z)] = Math.hypot(curlX, curlY, curlZ);
-        }
-      }
-    }
+    const mags = computeVorticityMagnitudes(result.velocity, result.velDims, domainSize);
 
     const sorted = Float32Array.from(mags).sort();
     const maxMag = Math.max(sorted[cellCount - 1], 1e-9);

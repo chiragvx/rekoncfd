@@ -1,6 +1,9 @@
 import * as THREE from "three";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 
-import { FieldSampler, SliceAxis, speedColormap } from "./fieldSampler";
+import { FieldSampler, SliceAxis, turbulenceColormap } from "./fieldSampler";
 
 /** Release points across the seed plane. Rendered as complete curves rather
  * than moving particles, so this is a count of STREAMLINES on screen. */
@@ -20,72 +23,53 @@ const MAX_POINTS_PER_DIR = 500;
  * point has entered the solid body, and integrating further is meaningless. */
 const MIN_SPEED_FRACTION = 0.02;
 
-// Travelling-brightness animation. Purely cosmetic: the geometry is static,
-// so this conveys flow direction without any of the spawn/despawn popping
-// that animating actual particles causes.
-const PULSE_WAVELENGTH_FRACTION = 0.12;
-const PULSE_TRAVEL_FRACTION_PER_S = 0.35;
-const PULSE_LUT_SIZE = 256;
-
-/** Precomputed one period of the pulse, so the per-frame color pass costs a
- * table lookup per vertex instead of a `sin`. */
-const PULSE_LUT = (() => {
-  const lut = new Float32Array(PULSE_LUT_SIZE);
-  for (let i = 0; i < PULSE_LUT_SIZE; i++) {
-    const s = 0.5 + 0.5 * Math.sin((2 * Math.PI * i) / PULSE_LUT_SIZE);
-    lut[i] = 0.45 + 0.55 * s * s;
-  }
-  return lut;
-})();
+/** Screen-space line width in CSS pixels -- native WebGL line primitives are
+ * clamped to 1px on most desktop backends regardless of what's requested
+ * (a well-known three.js/ANGLE limitation), which is exactly why these were
+ * hard to see clearly before. `LineSegments2`/`LineMaterial` render lines as
+ * camera-facing screen-space quads instead, so this value actually applies. */
+const LINE_WIDTH_PX = 2.5;
+/** Square root of the vorticity-scale fraction is used (not the fraction
+ * itself) so the colormap reddens readily even at modest vorticity rather
+ * than only right at the reference scale -- "any turbulence shows," not
+ * "only strong turbulence shows." */
+const TURBULENCE_GAMMA = 0.5;
 
 /** Streamlines of the solved velocity field, integrated as COMPLETE curves
  * from a plane of release points (ParaView/OpenFOAM "stream tracer with a
  * plane source"): each seed is traced both downstream and upstream until it
- * leaves the domain or stagnates, and the whole curve is drawn permanently.
- *
- * This replaced an animated-particle implementation. For a STEADY solved
- * field a streamline is a fixed curve, so animating particles along it was
- * redundant — and actively harmful: with a fixed seed grid every particle
- * was released at once and travelled in lockstep, so they all reached the
- * outlet together and respawned together, producing a visible pulse of
- * lines appearing and vanishing en masse. Static curves have no spawn
- * cycle at all, so there is nothing left to synchronize; flow direction is
- * conveyed by a travelling brightness wave instead, which never pops.
+ * leaves the domain or stagnates, and the whole curve is drawn permanently,
+ * fully formed, the instant it's built -- there is no animation of any kind
+ * (no travelling particles, no travelling brightness wave), matching how a
+ * real CFD post-processor like ParaView/SimFlow renders a stream tracer.
+ * Colored by local vorticity magnitude (calm blue -> turbulent red) rather
+ * than speed, so a line passing through disturbed air is visually obvious
+ * without needing the separate vorticity-hotspot overlay turned on.
  *
  * Integration is RK2 (midpoint) with a fixed arc-length step. */
 export class Streamlines {
   private readonly scene: THREE.Object3D;
-  private lines: THREE.LineSegments | null = null;
-  private positionAttr: THREE.BufferAttribute | null = null;
-  private colorAttr: THREE.BufferAttribute | null = null;
-  /** Per-vertex un-modulated color from local speed. */
-  private baseColor: Float32Array | null = null;
-  /** Per-vertex distance along its own curve, driving the pulse. */
-  private arcLength: Float32Array | null = null;
+  private readonly renderer: THREE.WebGLRenderer;
+  private lines: LineSegments2 | null = null;
+  private material: LineMaterial | null = null;
+  private readonly sizeScratch = new THREE.Vector2();
 
   private sampler: FieldSampler | null = null;
   private visible = true;
-  private paused = false;
-  private time = 0;
   private needsRebuild = false;
 
   private seedPlaneEnabled = false;
   private seedPlaneAxis: SliceAxis = SliceAxis.X;
   private seedPlanePosition01 = 0.1;
 
-  constructor(scene: THREE.Object3D) {
+  constructor(scene: THREE.Object3D, renderer: THREE.WebGLRenderer) {
     this.scene = scene;
+    this.renderer = renderer;
   }
 
   setField(sampler: FieldSampler) {
     this.sampler = sampler;
     this.needsRebuild = true;
-  }
-
-  /** Freezes the travelling pulse, leaving the curves drawn, so a structure
-   * can be inspected/orbited without motion. */
-  setPaused(paused: boolean) {
-    this.paused = paused;
   }
 
   setSeedPlane(enabled: boolean, axis: SliceAxis, position01: number) {
@@ -144,15 +128,16 @@ export class Streamlines {
 
   /** Traces one seed in one direction (+1 downstream, -1 upstream) until it
    * exits the domain, stagnates, or hits the point cap. Returns interleaved
-   * xyz plus the normalized speed at each point. */
-  private trace(seed: THREE.Vector3, direction: number, step: number): { pts: number[]; speeds: number[] } {
+   * xyz plus the vorticity magnitude at each point (already normalized by
+   * `vorticityScale`, mirroring how speed used to be normalized here). */
+  private trace(seed: THREE.Vector3, direction: number, step: number): { pts: number[]; vorticities: number[] } {
     const s = this.sampler!;
     const min = s.domainMin;
     const max = s.domainMax;
     const minSpeed = s.speedScale * MIN_SPEED_FRACTION;
 
     const pts: number[] = [];
-    const speeds: number[] = [];
+    const vorticities: number[] = [];
     const p = seed.clone();
     const v = new THREE.Vector3();
     const mid = new THREE.Vector3();
@@ -163,7 +148,7 @@ export class Streamlines {
       if (!Number.isFinite(speed) || speed < minSpeed) break;
 
       pts.push(p.x, p.y, p.z);
-      speeds.push(speed / s.speedScale);
+      vorticities.push(s.sampleVorticity(p.x, p.y, p.z) / s.vorticityScale);
 
       // RK2 (midpoint): sample at the half-step to follow curvature far
       // better than plain Euler, which visibly drifts off tight vortices.
@@ -177,7 +162,7 @@ export class Streamlines {
         break;
       }
     }
-    return { pts, speeds };
+    return { pts, vorticities };
   }
 
   private rebuild() {
@@ -188,45 +173,36 @@ export class Streamlines {
     const step = Math.max(s.domainSize.x * STEP_FRACTION, 1e-6);
 
     // Each seed's full curve = upstream trace reversed, then downstream.
-    const curves: { pts: number[]; speeds: number[] }[] = [];
+    const curves: { pts: number[]; vorticities: number[] }[] = [];
     for (const seed of this.seedPoints()) {
       const back = this.trace(seed, -1, step);
       const fwd = this.trace(seed, +1, step);
 
       const pts: number[] = [];
-      const speeds: number[] = [];
-      for (let i = back.speeds.length - 1; i >= 1; i--) {
+      const vorticities: number[] = [];
+      for (let i = back.vorticities.length - 1; i >= 1; i--) {
         pts.push(back.pts[i * 3], back.pts[i * 3 + 1], back.pts[i * 3 + 2]);
-        speeds.push(back.speeds[i]);
+        vorticities.push(back.vorticities[i]);
       }
       pts.push(...fwd.pts);
-      speeds.push(...fwd.speeds);
-      if (speeds.length >= 2) curves.push({ pts, speeds });
+      vorticities.push(...fwd.vorticities);
+      if (vorticities.length >= 2) curves.push({ pts, vorticities });
     }
 
-    const segmentCount = curves.reduce((n, c) => n + c.speeds.length - 1, 0);
+    const segmentCount = curves.reduce((n, c) => n + c.vorticities.length - 1, 0);
     if (segmentCount === 0) return;
 
     const vertexCount = segmentCount * 2;
     const positions = new Float32Array(vertexCount * 3);
     const colors = new Float32Array(vertexCount * 3);
-    const base = new Float32Array(vertexCount * 3);
-    const arc = new Float32Array(vertexCount);
     const color = new THREE.Color();
 
     let vi = 0;
     for (const curve of curves) {
-      const n = curve.speeds.length;
-      // Cumulative arc length along this curve, so the pulse travels at a
-      // constant world speed regardless of how the curve bends.
-      let travelled = 0;
+      const n = curve.vorticities.length;
       for (let i = 0; i < n - 1; i++) {
         const a = i * 3;
         const b = (i + 1) * 3;
-        const dx = curve.pts[b] - curve.pts[a];
-        const dy = curve.pts[b + 1] - curve.pts[a + 1];
-        const dz = curve.pts[b + 2] - curve.pts[a + 2];
-        const segLen = Math.hypot(dx, dy, dz);
 
         const o = vi * 3;
         positions[o] = curve.pts[a];
@@ -236,85 +212,59 @@ export class Streamlines {
         positions[o + 4] = curve.pts[b + 1];
         positions[o + 5] = curve.pts[b + 2];
 
-        speedColormap(curve.speeds[i], color);
-        base[o] = color.r;
-        base[o + 1] = color.g;
-        base[o + 2] = color.b;
-        speedColormap(curve.speeds[i + 1], color);
-        base[o + 3] = color.r;
-        base[o + 4] = color.g;
-        base[o + 5] = color.b;
+        turbulenceColormap(Math.pow(THREE.MathUtils.clamp(curve.vorticities[i], 0, 1), TURBULENCE_GAMMA), color);
+        colors[o] = color.r;
+        colors[o + 1] = color.g;
+        colors[o + 2] = color.b;
+        turbulenceColormap(Math.pow(THREE.MathUtils.clamp(curve.vorticities[i + 1], 0, 1), TURBULENCE_GAMMA), color);
+        colors[o + 3] = color.r;
+        colors[o + 4] = color.g;
+        colors[o + 5] = color.b;
 
-        arc[vi] = travelled;
-        arc[vi + 1] = travelled + segLen;
-        travelled += segLen;
         vi += 2;
       }
     }
 
-    const geometry = new THREE.BufferGeometry();
-    this.positionAttr = new THREE.BufferAttribute(positions, 3);
-    this.colorAttr = new THREE.BufferAttribute(colors, 3);
-    geometry.setAttribute("position", this.positionAttr);
-    geometry.setAttribute("color", this.colorAttr);
-    this.baseColor = base;
-    this.arcLength = arc;
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(positions);
+    geometry.setColors(colors);
 
-    const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 });
-    this.lines = new THREE.LineSegments(geometry, material);
+    const material = new LineMaterial({ vertexColors: true, transparent: true, opacity: 0.95, linewidth: LINE_WIDTH_PX });
+    this.renderer.getSize(this.sizeScratch);
+    material.resolution.copy(this.sizeScratch);
+
+    this.material = material;
+    this.lines = new LineSegments2(geometry, material);
     this.lines.visible = this.visible;
     // Long, self-overlapping curves; a stale bounding sphere would pop the
     // whole set out of view.
     this.lines.frustumCulled = false;
     this.scene.add(this.lines);
-
-    this.writeColors();
   }
 
-  /** Modulates the precomputed base colors by the travelling pulse. */
-  private writeColors() {
-    const colors = this.colorAttr?.array as Float32Array | undefined;
-    const base = this.baseColor;
-    const arc = this.arcLength;
-    const s = this.sampler;
-    if (!colors || !base || !arc || !s) return;
-
-    const wavelength = Math.max(s.domainSize.x * PULSE_WAVELENGTH_FRACTION, 1e-6);
-    const travel = this.time * s.domainSize.x * PULSE_TRAVEL_FRACTION_PER_S;
-    const invWavelength = 1 / wavelength;
-
-    for (let i = 0; i < arc.length; i++) {
-      let phase = (arc[i] - travel) * invWavelength;
-      phase -= Math.floor(phase);
-      const pulse = PULSE_LUT[(phase * PULSE_LUT_SIZE) | 0];
-      const o = i * 3;
-      colors[o] = base[o] * pulse;
-      colors[o + 1] = base[o + 1] * pulse;
-      colors[o + 2] = base[o + 2] * pulse;
-    }
-    this.colorAttr!.needsUpdate = true;
-  }
-
-  update(dt: number) {
+  /** Rebuilds if needed, and keeps the line material's `resolution` uniform
+   * in sync with the canvas size -- `LineMaterial` renders width in
+   * screen-space pixels, so it needs this to stay correct across resizes.
+   * Cheap enough to just refresh unconditionally every frame rather than
+   * wiring a second resize observer alongside `RekonScene`'s own. */
+  update() {
     if (this.needsRebuild) {
       this.needsRebuild = false;
       this.rebuild();
     }
-    if (this.paused || !this.lines) return;
-    this.time += dt;
-    this.writeColors();
+    if (this.material) {
+      this.renderer.getSize(this.sizeScratch);
+      this.material.resolution.copy(this.sizeScratch);
+    }
   }
 
   private disposeGeometry() {
     if (!this.lines) return;
     this.scene.remove(this.lines);
     this.lines.geometry.dispose();
-    (this.lines.material as THREE.Material).dispose();
+    this.material?.dispose();
     this.lines = null;
-    this.positionAttr = null;
-    this.colorAttr = null;
-    this.baseColor = null;
-    this.arcLength = null;
+    this.material = null;
   }
 
   dispose() {
