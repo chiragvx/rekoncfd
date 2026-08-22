@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ArrowRight,
@@ -20,7 +20,6 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { RekonMark } from "@/components/RekonMark";
 import { ProductScreenshots } from "@/components/ProductScreenshots";
-import { HeroFlowField } from "@/components/HeroFlowField";
 import { FaqSection, FAQS } from "@/components/FaqSection";
 import { DownloadSection } from "@/components/DownloadSection";
 import { Button } from "@/components/ui/button";
@@ -90,43 +89,6 @@ const STATS = [
   { icon: MonitorSmartphone, label: "Browser or desktop", detail: "Preview the UI on the web, or run the full solver locally." },
 ];
 
-/** A small ticking CL/CDi/Cm readout, styled like the real Tool's own
- * OutputBar -- purely decorative on the hero (there's no actual solve behind
- * it), but the numbers jitter around a genuine trimmed-cruise range rather
- * than being arbitrary, so it reads as "instrument" rather than "fake UI." */
-function HeroReadout() {
-  const [values, setValues] = useState({ cl: 0.62, cdi: 0.021, cm: 0.04 });
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setValues({
-        cl: 0.62 + (Math.random() - 0.5) * 0.03,
-        cdi: 0.021 + (Math.random() - 0.5) * 0.002,
-        cm: 0.04 + (Math.random() - 0.5) * 0.01,
-      });
-    }, 1400);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <div className="border-border/60 bg-background/70 font-data flex items-center gap-4 rounded-lg border px-3 py-2 text-xs backdrop-blur-sm">
-      <span className="flex items-center gap-1.5">
-        <span className="bg-success size-1.5 rounded-full" />
-        <span className="text-muted-foreground tracking-wide">LIVE</span>
-      </span>
-      <span className="text-muted-foreground">
-        CL <span className="text-foreground tabular-nums">{values.cl.toFixed(3)}</span>
-      </span>
-      <span className="text-muted-foreground">
-        CDi <span className="text-foreground tabular-nums">{values.cdi.toFixed(4)}</span>
-      </span>
-      <span className="text-muted-foreground">
-        Cm <span className="text-foreground tabular-nums">{values.cm.toFixed(3)}</span>
-      </span>
-    </div>
-  );
-}
-
 const FAQ_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
@@ -187,17 +149,12 @@ export function LandingPage() {
         </div>
 
         <div className="relative mx-auto mt-10 max-w-5xl px-6 pb-16">
-          <div className="border-border/60 bg-card surface-elevated relative h-[280px] overflow-hidden rounded-[32px] border sm:h-[360px]">
-            <HeroFlowField className="absolute inset-0 h-full w-full" />
-            <div className="from-background/80 pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b to-transparent" />
-            <div className="from-background/80 pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t to-transparent" />
-
-            <div className="text-muted-foreground/80 font-data absolute top-4 left-4 text-[0.65rem] tracking-[0.15em] uppercase">
-              2D potential flow, U&#8734; &rarr;
-            </div>
-            <div className="absolute bottom-4 left-4">
-              <HeroReadout />
-            </div>
+          <div className="border-border/60 surface-elevated relative overflow-hidden rounded-[32px] border">
+            <img
+              src="/screenshots/product-tool-flow.jpg"
+              alt="Rekon's 3D tool view showing a tapered swept flying wing with surface pressure coloring and lattice-Boltzmann streamlines flowing around it, alongside live CL/CDi/Cm readouts"
+              className="block w-full"
+            />
           </div>
 
           <div className="text-muted-foreground/70 mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
