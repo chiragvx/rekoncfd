@@ -5,11 +5,22 @@ import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeome
 
 import { FieldSampler, SliceAxis, turbulenceColormap } from "./fieldSampler";
 
-/** Release points across the seed plane. Rendered as complete curves rather
- * than moving particles, so this is a count of STREAMLINES on screen. */
+/** Target number of STREAMLINES actually drawn on screen -- not the number of
+ * candidate seeds released (see `CANDIDATE_COUNT`/`MIN_SEPARATION_FRACTION`
+ * below): a uniform seed grid alone can't hit this count without also
+ * producing tight bundles of near-duplicate lines wherever the flow itself
+ * converges (a slender nose, a wingtip), so the actual line count only
+ * approaches this in open flow and falls short near convergence zones --
+ * which is exactly the point. */
 const SEED_COUNT = 320;
-/** Columns in the seed-plane release grid; rows follow from the count. */
-const RAKE_COLS = Math.max(1, Math.round(Math.sqrt(SEED_COUNT)));
+/** Candidate seeds traced before thinning -- several times the target count,
+ * since most of the extra candidates are expected to get rejected wherever
+ * streamlines would otherwise bunch together (see `rebuild`'s acceptance
+ * loop). Only affects how many candidates are AVAILABLE to accept, not how
+ * many end up on screen. */
+const CANDIDATE_COUNT = SEED_COUNT * 3;
+/** Columns in the candidate seed-plane release grid; rows follow from the count. */
+const RAKE_COLS = Math.max(1, Math.round(Math.sqrt(CANDIDATE_COUNT)));
 
 /** Integration step as a fraction of the tunnel's streamwise extent. Fixed
  * ARC length per step (the direction is normalized before stepping), so
@@ -44,6 +55,85 @@ const LINE_WIDTH_PX = 1.6;
  * than only right at the reference scale -- "any turbulence shows," not
  * "only strong turbulence shows." */
 const TURBULENCE_GAMMA = 0.5;
+
+/** Minimum world-space gap a candidate streamline must keep from every
+ * already-accepted one, as a fraction of the tunnel's (smaller) cross-section
+ * dimension. A uniform seed rake naturally sends several adjacent columns
+ * converging toward the same tight band wherever the body itself narrows the
+ * flow (a nose tip, a wingtip) -- at close range that reads as one line
+ * doubled or tripled rather than several distinct ones, even though each is
+ * a genuinely different streamline. Rejecting candidates that would run this
+ * close to a line already on screen (see `rebuild`'s acceptance loop) is what
+ * actually fixes that, rather than width/count alone. */
+const MIN_SEPARATION_FRACTION = 0.02;
+
+/** Only every `STRIDE`-th point of a candidate curve is checked/inserted --
+ * points along one curve are only `step`-apart (a small fraction of the
+ * domain), far finer than `minSeparation` itself needs, so this cuts the
+ * proximity work several-fold with no real loss of accuracy. */
+const PROXIMITY_STRIDE = 3;
+
+/** Uniform spatial hash over accepted curves' points, used to reject a
+ * candidate streamline that would run too close to one already on screen
+ * (see `MIN_SEPARATION_FRACTION`). Cell size = the separation threshold
+ * itself, so a point's own cell plus its 26 neighbors always cover every
+ * already-inserted point within that radius. */
+class ProximityGrid {
+  private readonly cellSize: number;
+  private readonly cells = new Map<string, THREE.Vector3[]>();
+  private readonly scratch = new THREE.Vector3();
+
+  constructor(cellSize: number) {
+    this.cellSize = Math.max(cellSize, 1e-6);
+  }
+
+  private cellKey(x: number, y: number, z: number): string {
+    const c = this.cellSize;
+    return `${Math.floor(x / c)},${Math.floor(y / c)},${Math.floor(z / c)}`;
+  }
+
+  private isFar(x: number, y: number, z: number): boolean {
+    const c = this.cellSize;
+    const minDistSq = c * c;
+    const cx = Math.floor(x / c);
+    const cy = Math.floor(y / c);
+    const cz = Math.floor(z / c);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const bucket = this.cells.get(`${cx + dx},${cy + dy},${cz + dz}`);
+          if (!bucket) continue;
+          for (const p of bucket) {
+            this.scratch.set(x - p.x, y - p.y, z - p.z);
+            if (this.scratch.lengthSq() < minDistSq) return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  /** `pts` is a flat xyz array (one candidate curve). True if every sampled
+   * point stays outside every accepted curve's minimum-separation radius. */
+  anyPointTooClose(pts: number[]): boolean {
+    for (let i = 0; i < pts.length; i += 3 * PROXIMITY_STRIDE) {
+      if (!this.isFar(pts[i], pts[i + 1], pts[i + 2])) return true;
+    }
+    return false;
+  }
+
+  insert(pts: number[]) {
+    for (let i = 0; i < pts.length; i += 3 * PROXIMITY_STRIDE) {
+      const x = pts[i];
+      const y = pts[i + 1];
+      const z = pts[i + 2];
+      const key = this.cellKey(x, y, z);
+      const bucket = this.cells.get(key);
+      if (bucket) bucket.push(new THREE.Vector3(x, y, z));
+      else this.cells.set(key, [new THREE.Vector3(x, y, z)]);
+    }
+  }
+}
 
 /** Streamlines of the solved velocity field, integrated as COMPLETE curves
  * from a plane of release points (ParaView/OpenFOAM "stream tracer with a
@@ -104,9 +194,11 @@ export class Streamlines {
     if (this.lines) this.lines.visible = visible;
   }
 
-  /** Release points: a regular grid over the chosen plane. With the seed
-   * plane off this falls back to a cross-flow rake just inside the inlet,
-   * which is the natural default for a wind tunnel. */
+  /** Candidate release points: a regular grid over the chosen plane, denser
+   * than the target line count (see `CANDIDATE_COUNT`) since `rebuild` only
+   * accepts a subset. With the seed plane off this falls back to a
+   * cross-flow rake just inside the inlet, which is the natural default for
+   * a wind tunnel. */
   private seedPoints(): THREE.Vector3[] {
     const s = this.sampler!;
     const min = s.domainMin;
@@ -116,13 +208,13 @@ export class Streamlines {
     const coord = s.slicePlaneCoord(axis, position);
 
     const cols = RAKE_COLS;
-    const rows = Math.ceil(SEED_COUNT / cols);
+    const rows = Math.ceil(CANDIDATE_COUNT / cols);
     // Inset from the tunnel walls, which are free-slip boundaries with
     // nothing interesting on them.
     const inset = (t: number) => 0.05 + 0.9 * t;
 
     const seeds: THREE.Vector3[] = [];
-    for (let i = 0; i < SEED_COUNT; i++) {
+    for (let i = 0; i < CANDIDATE_COUNT; i++) {
       const u = inset(((i % cols) + 0.5) / cols);
       const v = inset((Math.floor(i / cols) + 0.5) / rows);
       if (axis === SliceAxis.X) {
@@ -181,10 +273,20 @@ export class Streamlines {
     this.disposeGeometry();
 
     const step = Math.max(s.domainSize.x * STEP_FRACTION, 1e-6);
+    const minSeparation = Math.min(s.domainSize.y, s.domainSize.z) * MIN_SEPARATION_FRACTION;
+    const occupied = new ProximityGrid(minSeparation);
 
     // Each seed's full curve = upstream trace reversed, then downstream.
+    // Candidates are accepted greedily in seed-grid order up to SEED_COUNT --
+    // one that would run within `minSeparation` of an already-accepted curve
+    // anywhere along its length is rejected outright, which is what actually
+    // keeps convergence zones from reading as a doubled/tripled line (see
+    // `MIN_SEPARATION_FRACTION`'s doc comment) rather than just thinning
+    // everything uniformly.
     const curves: { pts: number[]; vorticities: number[] }[] = [];
     for (const seed of this.seedPoints()) {
+      if (curves.length >= SEED_COUNT) break;
+
       const back = this.trace(seed, -1, step);
       const fwd = this.trace(seed, +1, step);
 
@@ -196,7 +298,11 @@ export class Streamlines {
       }
       pts.push(...fwd.pts);
       vorticities.push(...fwd.vorticities);
-      if (vorticities.length >= 2) curves.push({ pts, vorticities });
+      if (vorticities.length < 2) continue;
+
+      if (occupied.anyPointTooClose(pts)) continue;
+      occupied.insert(pts);
+      curves.push({ pts, vorticities });
     }
 
     const segmentCount = curves.reduce((n, c) => n + c.vorticities.length - 1, 0);
