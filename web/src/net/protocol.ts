@@ -105,8 +105,19 @@ export function encodeSliderUpdate(
   return encodeF32Frame(Tag.SliderUpdate, new Float32Array([pitchDeg, vInf, cg.x, cg.y, cg.z, bankDeg, yawDeg]));
 }
 
-export function encodeSolveFlowFieldRequest(pitchDeg: number, vInf: number, bankDeg: number, yawDeg: number): ArrayBuffer {
-  return encodeF32Frame(Tag.SolveFlowFieldRequest, new Float32Array([pitchDeg, vInf, bankDeg, yawDeg]));
+/** `resolutionMultiplier`/`maxSteps` control the LBM solve's grid density and
+ * step count (see the Settings menu's "Flow solve quality" section) -- the
+ * server clamps both regardless of what's sent here, so an out-of-range
+ * value just gets pulled back in rather than rejected. */
+export function encodeSolveFlowFieldRequest(
+  pitchDeg: number,
+  vInf: number,
+  bankDeg: number,
+  yawDeg: number,
+  resolutionMultiplier: number,
+  maxSteps: number,
+): ArrayBuffer {
+  return encodeF32Frame(Tag.SolveFlowFieldRequest, new Float32Array([pitchDeg, vInf, bankDeg, yawDeg, resolutionMultiplier, maxSteps]));
 }
 
 /** Requests a trim search (Cm(alpha)=0) about the current slider CG/V.

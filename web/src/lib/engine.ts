@@ -96,6 +96,23 @@ export interface ImportSummary {
   mapping: AxisMappingSummary;
 }
 
+/** LBM solve grid density/step count -- server-clamped (see
+ * `ws::lbm::decode_solve_request`), so these are a REQUEST, not a
+ * guarantee: `resolutionMultiplier` scales the solve's voxel grid (and the
+ * velocity field sampled back from it) in all three axes together, and
+ * `maxSteps` is the solver's step cap. Only takes effect on the next
+ * "Solve Flow Field" click -- unlike `StreamlineSettings`, there's no cheap
+ * way to apply a resolution/step change to an already-completed solve. */
+export interface SolveQuality {
+  resolutionMultiplier: number;
+  maxSteps: number;
+}
+
+export const DEFAULT_SOLVE_QUALITY: SolveQuality = {
+  resolutionMultiplier: 1.0,
+  maxSteps: 400,
+};
+
 export interface VizState {
   pressure: boolean;
   streamlines: boolean;
@@ -107,6 +124,8 @@ export interface VizState {
   /** How streamlines are traced/rendered, as opposed to `streamlines` above
    * (whether they're shown at all) -- see the Settings menu. */
   streamlineSettings: StreamlineSettings;
+  /** See `SolveQuality`'s doc comment. */
+  solveQuality: SolveQuality;
 }
 
 export const DEFAULT_VIZ_STATE: VizState = {
@@ -118,6 +137,7 @@ export const DEFAULT_VIZ_STATE: VizState = {
   planeAxis: SliceAxis.X,
   planePosition: 0.1,
   streamlineSettings: { ...DEFAULT_STREAMLINE_SETTINGS },
+  solveQuality: { ...DEFAULT_SOLVE_QUALITY },
 };
 
 type EventMap = {
@@ -449,7 +469,8 @@ class RekonEngine {
   ) {
     this.solveStartedAt = performance.now();
     this.emit("solveStarted", undefined);
-    this.socket?.send(encodeSolveFlowFieldRequest(pitchDeg, vInf, bankDeg, yawDeg));
+    const { resolutionMultiplier, maxSteps } = this.vizState.solveQuality;
+    this.socket?.send(encodeSolveFlowFieldRequest(pitchDeg, vInf, bankDeg, yawDeg, resolutionMultiplier, maxSteps));
   }
 
   /** Ground grid and wind-tunnel wireframe are scene/environment chrome, not
@@ -464,16 +485,24 @@ class RekonEngine {
   }
 
   applyVizState(state: VizState) {
-    this.vizState = state;
-    this.stlViewer?.setPressureVisible(state.pressure);
-    this.streamlines?.setVisible(state.streamlines);
-    this.vorticityField?.setVisible(state.vorticity);
-    this.contourPlane?.setVisible(state.contour);
-    this.streamlines?.setSeedPlane(state.seedPlane, state.planeAxis, state.planePosition);
-    this.contourPlane?.setSlice(state.planeAxis, state.planePosition);
-    // `??` guards projects saved before this setting existed -- their stored
-    // `viz_state` has no `streamlineSettings` key at all.
-    this.streamlines?.setStreamlineSettings(state.streamlineSettings ?? DEFAULT_STREAMLINE_SETTINGS);
+    // Merged onto the defaults (including the nested settings objects)
+    // rather than trusted as complete -- a project saved before
+    // `streamlineSettings`/`solveQuality` existed has no such keys in its
+    // stored `viz_state` at all.
+    this.vizState = {
+      ...DEFAULT_VIZ_STATE,
+      ...state,
+      streamlineSettings: { ...DEFAULT_STREAMLINE_SETTINGS, ...state.streamlineSettings },
+      solveQuality: { ...DEFAULT_SOLVE_QUALITY, ...state.solveQuality },
+    };
+    const merged = this.vizState;
+    this.stlViewer?.setPressureVisible(merged.pressure);
+    this.streamlines?.setVisible(merged.streamlines);
+    this.vorticityField?.setVisible(merged.vorticity);
+    this.contourPlane?.setVisible(merged.contour);
+    this.streamlines?.setSeedPlane(merged.seedPlane, merged.planeAxis, merged.planePosition);
+    this.contourPlane?.setSlice(merged.planeAxis, merged.planePosition);
+    this.streamlines?.setStreamlineSettings(merged.streamlineSettings);
   }
 
   async importFile(file: File): Promise<ImportSummary> {

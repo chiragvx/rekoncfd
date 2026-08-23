@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { RotateCcw, Settings } from "lucide-react";
 
 import { DEFAULT_STREAMLINE_SETTINGS, type StreamlineSettings } from "@/viz/streamlines";
-import { engine } from "@/lib/engine";
+import { DEFAULT_SOLVE_QUALITY, engine, type SolveQuality } from "@/lib/engine";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 
 /** CFD visualization tuning -- how streamlines are traced/rendered, as
@@ -19,6 +20,7 @@ import { Slider } from "@/components/ui/slider";
 export function SettingsMenu() {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<StreamlineSettings>(() => engine.getVizState().streamlineSettings);
+  const [quality, setQuality] = useState<SolveQuality>(() => engine.getVizState().solveQuality);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,6 +55,22 @@ export function SettingsMenu() {
   function reset() {
     setSettings({ ...DEFAULT_STREAMLINE_SETTINGS });
     apply({ ...DEFAULT_STREAMLINE_SETTINGS });
+  }
+
+  /** No re-trace/re-solve happens just from changing this -- it's only read
+   * the next time "Solve Flow Field" is clicked -- so every drag tick can
+   * push straight to the engine with no live/deferred split needed. */
+  function updateQuality(patch: Partial<SolveQuality>) {
+    const next = { ...quality, ...patch };
+    setQuality(next);
+    const vizState = engine.getVizState();
+    engine.applyVizState({ ...vizState, solveQuality: next });
+  }
+
+  function resetQuality() {
+    setQuality({ ...DEFAULT_SOLVE_QUALITY });
+    const vizState = engine.getVizState();
+    engine.applyVizState({ ...vizState, solveQuality: { ...DEFAULT_SOLVE_QUALITY } });
   }
 
   return (
@@ -121,6 +139,50 @@ export function SettingsMenu() {
               step={0.05}
               onValueChange={(v) => updateDeferred({ turbulenceGamma: v }, false)}
               onValueCommit={(v) => updateDeferred({ turbulenceGamma: v }, true)}
+            />
+          </div>
+
+          <Separator className="my-3" />
+
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium">Flow solve quality</span>
+            <button
+              type="button"
+              title="Reset to defaults"
+              onClick={resetQuality}
+              className="text-muted-foreground hover:text-foreground rounded-md p-1 transition-colors"
+            >
+              <RotateCcw className="size-3.5" />
+            </button>
+          </div>
+          <p className="text-muted-foreground mb-3 text-xs leading-relaxed">
+            Applies on your next "Solve Flow Field" -- higher values give a finer flow field at the cost of a
+            longer solve.
+          </p>
+          <div className="flex flex-col gap-3">
+            <SettingRow
+              label="Grid resolution"
+              title="Scales the LBM solve's voxel grid (and the flow field sampled back from it) in all three axes -- cell count scales with the cube of this value."
+              value={quality.resolutionMultiplier}
+              unit="x"
+              decimals={1}
+              min={0.5}
+              max={2}
+              step={0.1}
+              onValueChange={(v) => updateQuality({ resolutionMultiplier: v })}
+              onValueCommit={(v) => updateQuality({ resolutionMultiplier: v })}
+            />
+            <SettingRow
+              label="Max steps"
+              title="The solver's step cap -- more steps let the flow field settle further before the solve is called done."
+              value={quality.maxSteps}
+              unit=""
+              decimals={0}
+              min={100}
+              max={800}
+              step={50}
+              onValueChange={(v) => updateQuality({ maxSteps: v })}
+              onValueCommit={(v) => updateQuality({ maxSteps: v })}
             />
           </div>
         </div>

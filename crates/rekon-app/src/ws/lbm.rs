@@ -10,16 +10,41 @@ use tokio::sync::mpsc::Sender;
 use crate::pipeline;
 use crate::state::MeshRecord;
 
-/// Grid resolution dedicated to the on-demand LBM solve — deliberately
-/// smaller than Phase 2's import-time preview voxel grid (128x64x64), which
-/// exists only to report a sanity-checkable occupancy fraction, not to be
-/// timestepped hundreds of times. See the project's feasibility research:
-/// realistic CPU-only D3Q19 throughput is roughly 50-150 MLUPS for a
-/// straightforward rayon port, so this cell count keeps a few hundred steps
-/// in the few-second range rather than tens of seconds.
-const SOLVE_VOXEL_DIMS: (usize, usize, usize) = (96, 48, 48);
-const VELOCITY_SAMPLE_DIMS: (usize, usize, usize) = (48, 24, 24);
-const MAX_STEPS: usize = 400;
+/// Base grid resolution for the on-demand LBM solve, before the user's own
+/// resolution multiplier (see the Settings menu's "Flow solve quality"
+/// section) is applied — deliberately smaller than Phase 2's import-time
+/// preview voxel grid (128x64x64), which exists only to report a
+/// sanity-checkable occupancy fraction, not to be timestepped hundreds of
+/// times. See the project's feasibility research: realistic CPU-only D3Q19
+/// throughput is roughly 50-150 MLUPS for a straightforward rayon port, so
+/// this cell count keeps a few hundred steps in the few-second range rather
+/// than tens of seconds at the default (1.0x) multiplier.
+pub(crate) const BASE_SOLVE_VOXEL_DIMS: (usize, usize, usize) = (96, 48, 48);
+pub(crate) const BASE_VELOCITY_SAMPLE_DIMS: (usize, usize, usize) = (48, 24, 24);
+pub(crate) const BASE_MAX_STEPS: usize = 400;
+
+/// Bounds for the user-adjustable resolution multiplier and step count,
+/// enforced server-side regardless of what the client sends -- cell count
+/// scales with the CUBE of the multiplier, so the 2.0x ceiling alone is
+/// already 8x `BASE_SOLVE_VOXEL_DIMS`'s cell count; combined with the step
+/// ceiling that's roughly 16x the default's total lattice-update work,
+/// enough to turn a few-second solve into the better part of a minute at
+/// the low end of the documented MLUPS range. A client requesting more than
+/// this (buggy or otherwise) gets silently clamped, not rejected.
+const MIN_RESOLUTION_MULTIPLIER: f32 = 0.5;
+const MAX_RESOLUTION_MULTIPLIER: f32 = 2.0;
+const MIN_MAX_STEPS: usize = 100;
+const MAX_MAX_STEPS: usize = 800;
+
+/// Scales a base `(nx, ny, nz)` by `multiplier`, rounding each axis
+/// independently -- keeps the same aspect ratio `BASE_SOLVE_VOXEL_DIMS`/
+/// `BASE_VELOCITY_SAMPLE_DIMS` already encode, just at a different overall
+/// cell density. Floored at 4 per axis so a very low multiplier can't
+/// degenerate into a grid too coarse for the solver's stencil.
+fn scaled_dims(base: (usize, usize, usize), multiplier: f32) -> (usize, usize, usize) {
+    let scale = |n: usize| ((n as f32 * multiplier).round() as usize).max(4);
+    (scale(base.0), scale(base.1), scale(base.2))
+}
 
 /// Air kinematic viscosity at sea level, ~15C (m^2/s) — used only to derive a
 /// dimensionless Reynolds number from the user's real airspeed/chord; the
@@ -55,17 +80,34 @@ pub struct SolveRequest {
     /// Real geometric yaw angle -- same backward-compatible default as
     /// `bank_deg`.
     pub yaw_deg: f32,
+    /// Scales `BASE_SOLVE_VOXEL_DIMS`/`BASE_VELOCITY_SAMPLE_DIMS` (see
+    /// `scaled_dims`) -- already clamped to
+    /// `[MIN_RESOLUTION_MULTIPLIER, MAX_RESOLUTION_MULTIPLIER]` by the time
+    /// it reaches here. Defaults to 1.0 (the base resolution) for older
+    /// clients that don't send it.
+    pub resolution_multiplier: f32,
+    /// Already clamped to `[MIN_MAX_STEPS, MAX_MAX_STEPS]`. Defaults to
+    /// `BASE_MAX_STEPS` for older clients.
+    pub max_steps: usize,
 }
 
 pub fn decode_solve_request(payload: &[f32]) -> Option<SolveRequest> {
     if payload.len() < 2 {
         return None;
     }
+    let resolution_multiplier = payload
+        .get(4)
+        .copied()
+        .unwrap_or(1.0)
+        .clamp(MIN_RESOLUTION_MULTIPLIER, MAX_RESOLUTION_MULTIPLIER);
+    let max_steps = (payload.get(5).copied().unwrap_or(BASE_MAX_STEPS as f32) as usize).clamp(MIN_MAX_STEPS, MAX_MAX_STEPS);
     Some(SolveRequest {
         alpha_deg: payload[0] as f64,
         v_inf: payload[1] as f64,
         bank_deg: payload.get(2).copied().unwrap_or(0.0),
         yaw_deg: payload.get(3).copied().unwrap_or(0.0),
+        resolution_multiplier,
+        max_steps,
     })
 }
 
@@ -123,10 +165,13 @@ pub(crate) fn run_lbm_to_completion(
     domain: Aabb,
     chord_m: f32,
     v_inf: f64,
+    solve_voxel_dims: (usize, usize, usize),
+    velocity_sample_dims: (usize, usize, usize),
+    max_steps: usize,
     mut on_progress: impl FnMut(Progress),
     mut should_stop: impl FnMut() -> bool,
 ) -> Result<LbmFrameResult, LbmRunError> {
-    let grid = voxelize(mesh, domain, SOLVE_VOXEL_DIMS);
+    let grid = voxelize(mesh, domain, solve_voxel_dims);
     let cell_size = grid.cell_size();
     let mean_cell_size = (cell_size.x + cell_size.y + cell_size.z) / 3.0;
 
@@ -134,18 +179,18 @@ pub(crate) fn run_lbm_to_completion(
 
     let mut solver = Solver::new(grid, tau, u_inlet).map_err(LbmRunError::Solver)?;
 
-    let outcome = solver.run(MAX_STEPS, &mut on_progress, &mut should_stop);
+    let outcome = solver.run(max_steps, &mut on_progress, &mut should_stop);
     match outcome {
         SolveOutcome::StoppedByCaller { .. } => return Err(LbmRunError::StoppedByCaller),
         SolveOutcome::Diverged { .. } => return Err(LbmRunError::Diverged),
         SolveOutcome::Completed { .. } => {}
     }
 
-    let sample = sample_flow_field(mesh, solver.grid(), solver.lattice(), U_LATTICE, VELOCITY_SAMPLE_DIMS);
+    let sample = sample_flow_field(mesh, solver.grid(), solver.lattice(), U_LATTICE, velocity_sample_dims);
     let domain = sample.velocity_field.domain;
     Ok(LbmFrameResult {
         surface_cp: sample.surface_cp,
-        vel_dims: (VELOCITY_SAMPLE_DIMS.0 as u32, VELOCITY_SAMPLE_DIMS.1 as u32, VELOCITY_SAMPLE_DIMS.2 as u32),
+        vel_dims: (velocity_sample_dims.0 as u32, velocity_sample_dims.1 as u32, velocity_sample_dims.2 as u32),
         domain_min: domain.min.into(),
         domain_max: domain.max.into(),
         velocity: sample.velocity_field.data,
@@ -186,6 +231,9 @@ pub fn run_solve(
         pipeline::default_wind_tunnel_domain(mesh, chord_m.max(0.05) * 4.0)
     };
 
+    let solve_voxel_dims = scaled_dims(BASE_SOLVE_VOXEL_DIMS, request.resolution_multiplier);
+    let velocity_sample_dims = scaled_dims(BASE_VELOCITY_SAMPLE_DIMS, request.resolution_multiplier);
+
     let tx_progress = tx.clone();
     let current_gen_check = current_generation.clone();
     // `mesh` already bakes `request.alpha_deg` in as a pitch rotation above,
@@ -197,6 +245,9 @@ pub fn run_solve(
         domain,
         chord_m,
         request.v_inf,
+        solve_voxel_dims,
+        velocity_sample_dims,
+        request.max_steps,
         move |p: Progress| {
             let payload = [p.step as f32, p.max_steps as f32, p.max_velocity, p.mean_density];
             let _ = tx_progress.try_send(encode_f32_frame(tags::SOLVE_PROGRESS, &payload));

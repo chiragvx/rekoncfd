@@ -147,6 +147,9 @@ pub fn run(
             domain,
             chord_m,
             slider.freestream.v_inf,
+            crate::ws::lbm::BASE_SOLVE_VOXEL_DIMS,
+            crate::ws::lbm::BASE_VELOCITY_SAMPLE_DIMS,
+            crate::ws::lbm::BASE_MAX_STEPS,
             move |p| {
                 let payload = [p.step as f32, p.max_steps as f32, p.max_velocity, p.mean_density];
                 let _ = tx_progress.try_send(encode_f32_frame(tags::SOLVE_PROGRESS, &payload));
