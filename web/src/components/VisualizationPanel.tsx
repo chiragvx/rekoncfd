@@ -24,7 +24,12 @@ const AXIS_LABELS: [SliceAxis, string][] = [
 export function VisualizationPanel() {
   const [state, setState] = useState<VizState>(DEFAULT_VIZ_STATE);
 
-  function apply(next: VizState) {
+  // Merges onto the engine's OWN current state, not this component's local
+  // `state` -- `SettingsMenu` (the streamline-tuning settings) applies its
+  // own changes the same way, and merging onto a stale local copy here would
+  // silently revert whatever it last set.
+  function apply(patch: Partial<VizState>) {
+    const next = { ...engine.getVizState(), ...patch };
     setState(next);
     engine.applyVizState(next);
   }
@@ -45,7 +50,7 @@ export function VisualizationPanel() {
             <Switch
               id={`layer-${layer.key}`}
               checked={state[layer.key]}
-              onCheckedChange={(checked) => apply({ ...state, [layer.key]: checked })}
+              onCheckedChange={(checked) => apply({ [layer.key]: checked })}
             />
           </div>
         ))}
@@ -59,7 +64,7 @@ export function VisualizationPanel() {
           <Switch
             id="seed-plane"
             checked={state.seedPlane}
-            onCheckedChange={(checked) => apply({ ...state, seedPlane: checked })}
+            onCheckedChange={(checked) => apply({ seedPlane: checked })}
           />
         </div>
 
@@ -68,7 +73,7 @@ export function VisualizationPanel() {
             <Label className="text-muted-foreground text-xs font-normal">Plane</Label>
             <Select
               value={String(state.planeAxis)}
-              onValueChange={(v) => apply({ ...state, planeAxis: Number(v) as SliceAxis })}
+              onValueChange={(v) => apply({ planeAxis: Number(v) as SliceAxis })}
             >
               <SelectTrigger size="sm" className="w-40">
                 <SelectValue />
@@ -89,7 +94,7 @@ export function VisualizationPanel() {
               min={0}
               max={100}
               step={1}
-              onValueChange={([v]) => apply({ ...state, planePosition: v / 100 })}
+              onValueChange={([v]) => apply({ planePosition: v / 100 })}
             />
             <span className="text-muted-foreground w-9 shrink-0 text-right text-xs">
               {Math.round(state.planePosition * 100)}%

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { RekonMark } from "@/components/RekonMark";
 import { AccountControl } from "@/components/AccountControl";
 import { ProjectMenu } from "@/components/ProjectMenu";
+import { SettingsMenu } from "@/components/SettingsMenu";
 
 const NAV_LINKS = [
   { to: "/explore", label: "Explore Models" },
@@ -73,6 +74,9 @@ export function ToolNav() {
           <Badge variant={status === "open" ? "success" : status === "connecting" ? "secondary" : "destructive"}>
             {status}
           </Badge>
+
+          <div className="bg-border h-5 w-px" />
+          <SettingsMenu />
 
           {isSupabaseConfigured && (
             <>

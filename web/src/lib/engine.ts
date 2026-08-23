@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { createScene, startRenderLoop, type RekonScene } from "@/viewport/scene";
 import { StlViewer } from "@/viewport/stlViewer";
 import { WindTunnel } from "@/viewport/windTunnel";
-import { Streamlines } from "@/viz/streamlines";
+import { DEFAULT_STREAMLINE_SETTINGS, Streamlines, type StreamlineSettings } from "@/viz/streamlines";
 import { VorticityField } from "@/viz/vorticityField";
 import { ContourPlane } from "@/viz/contourPlane";
 import { FieldSampler, SliceAxis } from "@/viz/fieldSampler";
@@ -104,6 +104,9 @@ export interface VizState {
   seedPlane: boolean;
   planeAxis: SliceAxis;
   planePosition: number;
+  /** How streamlines are traced/rendered, as opposed to `streamlines` above
+   * (whether they're shown at all) -- see the Settings menu. */
+  streamlineSettings: StreamlineSettings;
 }
 
 export const DEFAULT_VIZ_STATE: VizState = {
@@ -114,6 +117,7 @@ export const DEFAULT_VIZ_STATE: VizState = {
   seedPlane: false,
   planeAxis: SliceAxis.X,
   planePosition: 0.1,
+  streamlineSettings: { ...DEFAULT_STREAMLINE_SETTINGS },
 };
 
 type EventMap = {
@@ -467,6 +471,9 @@ class RekonEngine {
     this.contourPlane?.setVisible(state.contour);
     this.streamlines?.setSeedPlane(state.seedPlane, state.planeAxis, state.planePosition);
     this.contourPlane?.setSlice(state.planeAxis, state.planePosition);
+    // `??` guards projects saved before this setting existed -- their stored
+    // `viz_state` has no `streamlineSettings` key at all.
+    this.streamlines?.setStreamlineSettings(state.streamlineSettings ?? DEFAULT_STREAMLINE_SETTINGS);
   }
 
   async importFile(file: File): Promise<ImportSummary> {

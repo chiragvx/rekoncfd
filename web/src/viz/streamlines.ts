@@ -5,22 +5,65 @@ import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeome
 
 import { FieldSampler, SliceAxis, turbulenceColormap } from "./fieldSampler";
 
-/** Target number of STREAMLINES actually drawn on screen -- not the number of
- * candidate seeds released (see `CANDIDATE_COUNT`/`MIN_SEPARATION_FRACTION`
- * below): a uniform seed grid alone can't hit this count without also
- * producing tight bundles of near-duplicate lines wherever the flow itself
- * converges (a slender nose, a wingtip), so the actual line count only
- * approaches this in open flow and falls short near convergence zones --
- * which is exactly the point. */
-const SEED_COUNT = 320;
-/** Candidate seeds traced before thinning -- several times the target count,
- * since most of the extra candidates are expected to get rejected wherever
- * streamlines would otherwise bunch together (see `rebuild`'s acceptance
- * loop). Only affects how many candidates are AVAILABLE to accept, not how
- * many end up on screen. */
-const CANDIDATE_COUNT = SEED_COUNT * 3;
-/** Columns in the candidate seed-plane release grid; rows follow from the count. */
-const RAKE_COLS = Math.max(1, Math.round(Math.sqrt(CANDIDATE_COUNT)));
+/** Every streamline-rendering knob exposed to the user (see the Settings
+ * menu in `SettingsMenu.tsx`) -- also persisted as part of a saved project's
+ * `VizState`, so reopening a project restores the same look. */
+export interface StreamlineSettings {
+  /** Target number of STREAMLINES actually drawn on screen -- not the number
+   * of candidate seeds released (see `CANDIDATE_MULTIPLIER` below): a
+   * uniform seed grid alone can't hit this count without also producing
+   * tight bundles of near-duplicate lines wherever the flow itself converges
+   * (a slender nose, a wingtip), so the actual line count only approaches
+   * this in open flow and falls short near convergence zones -- which is
+   * exactly the point. */
+  seedCount: number;
+  /** Screen-space line width in CSS pixels -- native WebGL line primitives
+   * are clamped to 1px on most desktop backends regardless of what's
+   * requested (a well-known three.js/ANGLE limitation); `LineSegments2`/
+   * `LineMaterial` render lines as camera-facing screen-space quads instead,
+   * so this value actually applies. `Line2`/`LineMaterial` render every
+   * short integration-step segment as its own independent quad with no
+   * join/miter between neighbors (three.js doesn't implement that for this
+   * addon), so at a wide width, streamlines that genuinely converge close
+   * together near the body/wake visually fuse into what reads as a single
+   * doubled/braided line instead of distinct threads -- `minSeparationFraction`
+   * is the other, usually more effective, lever against that. */
+  lineWidthPx: number;
+  /** Minimum world-space gap a candidate streamline must keep from every
+   * already-accepted one, as a fraction of the tunnel's (smaller)
+   * cross-section dimension. A uniform seed rake naturally sends several
+   * adjacent columns converging toward the same tight band wherever the
+   * body itself narrows the flow (a nose tip, a wingtip) -- at close range
+   * that reads as one line doubled or tripled rather than several distinct
+   * ones, even though each is a genuinely different streamline. Rejecting
+   * candidates that would run this close to a line already on screen (see
+   * `rebuild`'s acceptance loop) is what actually fixes that, rather than
+   * width/count alone. Zero disables thinning entirely. */
+  minSeparationFraction: number;
+  /** Gamma applied to normalized vorticity before the blue->red colormap;
+   * below 1 (the default, effectively a square root) the colormap reddens
+   * readily even at modest vorticity rather than only right at the
+   * reference scale -- "any turbulence shows," not "only strong turbulence
+   * shows." Above 1 requires stronger turbulence before it reads as red. */
+  turbulenceGamma: number;
+}
+
+/** Defaults for every setting above -- also `VizState`'s defaults, so a
+ * fresh session and "reset to defaults" both come from here. */
+export const DEFAULT_STREAMLINE_SETTINGS: StreamlineSettings = {
+  seedCount: 320,
+  lineWidthPx: 1.6,
+  minSeparationFraction: 0.02,
+  turbulenceGamma: 0.5,
+};
+
+/** How many candidate seeds are traced (and thinned by minimum separation)
+ * for one target `seedCount` -- several times over, since most of the extra
+ * candidates are expected to get rejected wherever streamlines would
+ * otherwise bunch together (see `rebuild`'s acceptance loop). Only affects
+ * how many candidates are AVAILABLE to accept, not how many end up on
+ * screen. */
+const CANDIDATE_MULTIPLIER = 3;
 
 /** Integration step as a fraction of the tunnel's streamwise extent. Fixed
  * ARC length per step (the direction is normalized before stepping), so
@@ -34,39 +77,6 @@ const MAX_POINTS_PER_DIR = 500;
  * point has entered the solid body, and integrating further is meaningless. */
 const MIN_SPEED_FRACTION = 0.02;
 
-/** Screen-space line width in CSS pixels -- native WebGL line primitives are
- * clamped to 1px on most desktop backends regardless of what's requested
- * (a well-known three.js/ANGLE limitation), which is exactly why these were
- * hard to see clearly before. `LineSegments2`/`LineMaterial` render lines as
- * camera-facing screen-space quads instead, so this value actually applies.
- * Deliberately modest (not the first value tried, 2.5) -- `Line2`/
- * `LineMaterial` render every short integration-step segment as its own
- * independent quad with no join/miter between neighbors (three.js doesn't
- * implement that for this addon), so at a wide width, streamlines that
- * genuinely converge close together near the body/wake -- a real, expected
- * feature of a flow field, not a bug -- visually fuse into what reads as a
- * single doubled/braided line instead of distinct threads. A narrower width
- * keeps each streamline legible as its own line even where several run
- * close together, while still being clearly thicker than the 1px native-GL
- * baseline this replaced. */
-const LINE_WIDTH_PX = 1.6;
-/** Square root of the vorticity-scale fraction is used (not the fraction
- * itself) so the colormap reddens readily even at modest vorticity rather
- * than only right at the reference scale -- "any turbulence shows," not
- * "only strong turbulence shows." */
-const TURBULENCE_GAMMA = 0.5;
-
-/** Minimum world-space gap a candidate streamline must keep from every
- * already-accepted one, as a fraction of the tunnel's (smaller) cross-section
- * dimension. A uniform seed rake naturally sends several adjacent columns
- * converging toward the same tight band wherever the body itself narrows the
- * flow (a nose tip, a wingtip) -- at close range that reads as one line
- * doubled or tripled rather than several distinct ones, even though each is
- * a genuinely different streamline. Rejecting candidates that would run this
- * close to a line already on screen (see `rebuild`'s acceptance loop) is what
- * actually fixes that, rather than width/count alone. */
-const MIN_SEPARATION_FRACTION = 0.02;
-
 /** Only every `STRIDE`-th point of a candidate curve is checked/inserted --
  * points along one curve are only `step`-apart (a small fraction of the
  * domain), far finer than `minSeparation` itself needs, so this cuts the
@@ -75,7 +85,7 @@ const PROXIMITY_STRIDE = 3;
 
 /** Uniform spatial hash over accepted curves' points, used to reject a
  * candidate streamline that would run too close to one already on screen
- * (see `MIN_SEPARATION_FRACTION`). Cell size = the separation threshold
+ * (see `StreamlineSettings.minSeparationFraction`). Cell size = the separation threshold
  * itself, so a point's own cell plus its 26 neighbors always cover every
  * already-inserted point within that radius. */
 class ProximityGrid {
@@ -162,6 +172,8 @@ export class Streamlines {
   private seedPlaneAxis: SliceAxis = SliceAxis.X;
   private seedPlanePosition01 = 0.1;
 
+  private settings: StreamlineSettings = { ...DEFAULT_STREAMLINE_SETTINGS };
+
   constructor(scene: THREE.Object3D, renderer: THREE.WebGLRenderer) {
     this.scene = scene;
     this.renderer = renderer;
@@ -189,14 +201,29 @@ export class Streamlines {
     this.needsRebuild = true;
   }
 
+  /** `seedCount`/`minSeparationFraction`/`turbulenceGamma` all require a full
+   * re-trace (the seed grid and/or the thinning pass change), so any change
+   * to those is deferred to the next `update()` like `setSeedPlane` above.
+   * `lineWidthPx` is a material uniform -- applied immediately below with no
+   * rebuild needed, which is what keeps a live-dragged width slider cheap. */
+  setStreamlineSettings(next: StreamlineSettings) {
+    const needsRetrace =
+      next.seedCount !== this.settings.seedCount ||
+      next.minSeparationFraction !== this.settings.minSeparationFraction ||
+      next.turbulenceGamma !== this.settings.turbulenceGamma;
+    this.settings = next;
+    if (this.material) this.material.linewidth = next.lineWidthPx;
+    if (needsRetrace) this.needsRebuild = true;
+  }
+
   setVisible(visible: boolean) {
     this.visible = visible;
     if (this.lines) this.lines.visible = visible;
   }
 
   /** Candidate release points: a regular grid over the chosen plane, denser
-   * than the target line count (see `CANDIDATE_COUNT`) since `rebuild` only
-   * accepts a subset. With the seed plane off this falls back to a
+   * than the target line count (see `CANDIDATE_MULTIPLIER`) since `rebuild`
+   * only accepts a subset. With the seed plane off this falls back to a
    * cross-flow rake just inside the inlet, which is the natural default for
    * a wind tunnel. */
   private seedPoints(): THREE.Vector3[] {
@@ -206,15 +233,15 @@ export class Streamlines {
     const axis = this.seedPlaneEnabled ? this.seedPlaneAxis : SliceAxis.X;
     const position = this.seedPlaneEnabled ? this.seedPlanePosition01 : 0.02;
     const coord = s.slicePlaneCoord(axis, position);
-
-    const cols = RAKE_COLS;
-    const rows = Math.ceil(CANDIDATE_COUNT / cols);
+    const candidateCount = this.settings.seedCount * CANDIDATE_MULTIPLIER;
+    const cols = Math.max(1, Math.round(Math.sqrt(candidateCount)));
+    const rows = Math.ceil(candidateCount / cols);
     // Inset from the tunnel walls, which are free-slip boundaries with
     // nothing interesting on them.
     const inset = (t: number) => 0.05 + 0.9 * t;
 
     const seeds: THREE.Vector3[] = [];
-    for (let i = 0; i < CANDIDATE_COUNT; i++) {
+    for (let i = 0; i < candidateCount; i++) {
       const u = inset(((i % cols) + 0.5) / cols);
       const v = inset((Math.floor(i / cols) + 0.5) / rows);
       if (axis === SliceAxis.X) {
@@ -273,19 +300,19 @@ export class Streamlines {
     this.disposeGeometry();
 
     const step = Math.max(s.domainSize.x * STEP_FRACTION, 1e-6);
-    const minSeparation = Math.min(s.domainSize.y, s.domainSize.z) * MIN_SEPARATION_FRACTION;
+    const minSeparation = Math.min(s.domainSize.y, s.domainSize.z) * this.settings.minSeparationFraction;
     const occupied = new ProximityGrid(minSeparation);
 
     // Each seed's full curve = upstream trace reversed, then downstream.
-    // Candidates are accepted greedily in seed-grid order up to SEED_COUNT --
-    // one that would run within `minSeparation` of an already-accepted curve
-    // anywhere along its length is rejected outright, which is what actually
-    // keeps convergence zones from reading as a doubled/tripled line (see
-    // `MIN_SEPARATION_FRACTION`'s doc comment) rather than just thinning
-    // everything uniformly.
+    // Candidates are accepted greedily in seed-grid order up to the target
+    // seed count -- one that would run within `minSeparation` of an
+    // already-accepted curve anywhere along its length is rejected outright,
+    // which is what actually keeps convergence zones from reading as a
+    // doubled/tripled line (see `StreamlineSettings.minSeparationFraction`'s
+    // doc comment) rather than just thinning everything uniformly.
     const curves: { pts: number[]; vorticities: number[] }[] = [];
     for (const seed of this.seedPoints()) {
-      if (curves.length >= SEED_COUNT) break;
+      if (curves.length >= this.settings.seedCount) break;
 
       const back = this.trace(seed, -1, step);
       const fwd = this.trace(seed, +1, step);
@@ -328,11 +355,11 @@ export class Streamlines {
         positions[o + 4] = curve.pts[b + 1];
         positions[o + 5] = curve.pts[b + 2];
 
-        turbulenceColormap(Math.pow(THREE.MathUtils.clamp(curve.vorticities[i], 0, 1), TURBULENCE_GAMMA), color);
+        turbulenceColormap(Math.pow(THREE.MathUtils.clamp(curve.vorticities[i], 0, 1), this.settings.turbulenceGamma), color);
         colors[o] = color.r;
         colors[o + 1] = color.g;
         colors[o + 2] = color.b;
-        turbulenceColormap(Math.pow(THREE.MathUtils.clamp(curve.vorticities[i + 1], 0, 1), TURBULENCE_GAMMA), color);
+        turbulenceColormap(Math.pow(THREE.MathUtils.clamp(curve.vorticities[i + 1], 0, 1), this.settings.turbulenceGamma), color);
         colors[o + 3] = color.r;
         colors[o + 4] = color.g;
         colors[o + 5] = color.b;
@@ -345,7 +372,7 @@ export class Streamlines {
     geometry.setPositions(positions);
     geometry.setColors(colors);
 
-    const material = new LineMaterial({ vertexColors: true, transparent: true, opacity: 0.95, linewidth: LINE_WIDTH_PX });
+    const material = new LineMaterial({ vertexColors: true, transparent: true, opacity: 0.95, linewidth: this.settings.lineWidthPx });
     this.renderer.getSize(this.sizeScratch);
     material.resolution.copy(this.sizeScratch);
 
