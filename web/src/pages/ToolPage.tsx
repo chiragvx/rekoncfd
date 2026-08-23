@@ -47,6 +47,11 @@ function Sidebar({ children }: { children: ReactNode }) {
   return <aside className="flex w-72 shrink-0 flex-col gap-6 overflow-y-auto">{children}</aside>;
 }
 
+/** Hides the "Banked flight" sweep-animation feature from the live tool
+ * without removing it -- flip back to `true` to bring it back; `SweepAnimationPanel`
+ * and its whole server-side pipeline (`ws::bank_sweep`) are untouched. */
+const SHOW_SWEEP_ANIMATION = false;
+
 export function ToolPage() {
   return (
     <AuthProvider>
@@ -109,9 +114,11 @@ function ToolPageContent() {
             <FlightConditionPanel chordEstimateM={chordEstimateM} />
             <StabilityPanel />
           </Section>
-          <Section label="Animation">
-            <SweepAnimationPanel />
-          </Section>
+          {SHOW_SWEEP_ANIMATION && (
+            <Section label="Animation">
+              <SweepAnimationPanel />
+            </Section>
+          )}
         </Sidebar>
       </div>
     </div>
