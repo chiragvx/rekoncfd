@@ -25,7 +25,15 @@ export function StabilityPanel() {
   const [rangeError, setRangeError] = useState<string | null>(null);
 
   useEngineEvent("panelResult", () => setEnabled(true));
-  useEngineEvent("meshGeometry", () => setEnabled(false));
+  useEngineEvent("meshGeometry", () => {
+    // Fires both for a fresh import and for one that replaces the current
+    // mesh (see engine.ts's importFile/generateWing/loadSampleModel) --
+    // either way the previous mesh's trim/polar results no longer apply and
+    // must not linger looking like current numbers for the new mesh.
+    setEnabled(false);
+    setTrim(null);
+    setPolar(null);
+  });
   useEngineEvent("meshCleared", () => {
     setEnabled(false);
     setTrim(null);

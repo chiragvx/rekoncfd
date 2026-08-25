@@ -108,6 +108,22 @@ export async function deleteProject(project: ProjectRow): Promise<void> {
   if (error) throw error;
 }
 
+/** Deletes every saved project (row + any stored STL) for the current user
+ * -- the self-serve "erase my data" action surfaced from `AccountControl`.
+ * Row Level Security already scopes `listProjects`/`deleteProject` to the
+ * signed-in user, so this is just those two calls in sequence; no new
+ * policy or server-side function is needed. This does NOT delete the
+ * `auth.users` row itself (the email/login record) -- the client SDK has no
+ * permission to do that, it requires the service-role key. A visitor who
+ * wants that too should be pointed at the account-deletion contact route
+ * described in the Privacy Policy. */
+export async function deleteAllProjects(): Promise<void> {
+  const projects = await listProjects();
+  for (const project of projects) {
+    await deleteProject(project);
+  }
+}
+
 /** Downloads an uploaded project's stored STL back into a real `File`, ready
  * to hand to `engine.importFile` -- the same path a fresh drag-and-drop
  * import already goes through, so re-loading a saved project reuses that

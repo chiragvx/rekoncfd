@@ -11,7 +11,16 @@ export function SolvePanel() {
   const [progress, setProgress] = useState<{ step: number; maxSteps: number; maxVelocity: number } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  useEngineEvent("meshGeometry", () => setEnabled(true));
+  useEngineEvent("meshGeometry", () => {
+    // A replacement import (not just a cleared one) also invalidates any
+    // solve status/progress left over from the previous mesh -- see
+    // StabilityPanel's identical fix for the same meshGeometry-without-
+    // meshCleared replace path.
+    setEnabled(true);
+    setSolving(false);
+    setProgress(null);
+    setStatus(null);
+  });
   useEngineEvent("meshCleared", () => {
     setEnabled(false);
     setSolving(false);

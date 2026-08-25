@@ -18,6 +18,10 @@ export const FAQS: FaqEntry[] = [
     a: "Yes. Both the hosted web preview and the downloadable desktop app (Windows or macOS) are free.",
   },
   {
+    q: "Do I need an account?",
+    a: "Yes, a free sign-in (email or GitHub) is currently required to use the tool, on both the hosted preview and the downloaded app. It's the same account either way, and it's what lets you save and reload projects across sessions and devices.",
+  },
+  {
     q: "Do I need an internet connection to use it?",
     a: "The hosted page at rekoncfd.vercel.app is a preview shell with no backend of its own — it can't actually solve anything. The downloaded desktop app runs a local server on your own machine and solves fully offline; it only touches the network to check for a new version on launch.",
   },
@@ -31,7 +35,7 @@ export const FAQS: FaqEntry[] = [
   },
   {
     q: "Is Rekon open source?",
-    a: "Yes, the full source is available on GitHub at github.com/chiragvx/rekoncfd.",
+    a: "Yes — MIT licensed. The full source is available on GitHub at github.com/chiragvx/rekoncfd.",
   },
   {
     q: "What platforms does the desktop app support?",

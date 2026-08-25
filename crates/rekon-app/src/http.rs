@@ -422,9 +422,19 @@ pub(crate) struct ApplyUpdateResponse {
 /// exe. The caller (the desktop UI) is responsible for telling the user to
 /// relaunch afterward -- this process keeps running the OLD code in memory
 /// until it exits, and does not (and safely cannot) restart itself.
-pub async fn apply_update() -> Result<Json<ApplyUpdateResponse>, (StatusCode, String)> {
-    let version = tokio::task::spawn_blocking(updater::apply_update)
-        .await
+///
+/// Guarded by `state.update_in_progress` so two overlapping calls (e.g. a
+/// double-click before the UI disables its own button) can't both call into
+/// `self_update` at once -- see the field doc on `AppState`.
+pub async fn apply_update(State(state): State<AppState>) -> Result<Json<ApplyUpdateResponse>, (StatusCode, String)> {
+    if state.update_in_progress.swap(true, Ordering::SeqCst) {
+        return Err((StatusCode::CONFLICT, "An update is already in progress.".to_string()));
+    }
+
+    let result = tokio::task::spawn_blocking(updater::apply_update).await;
+    state.update_in_progress.store(false, Ordering::SeqCst);
+
+    let version = result
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, format!("update task panicked: {err}")))?
         .map_err(|err| (StatusCode::BAD_GATEWAY, err.to_string()))?;
 

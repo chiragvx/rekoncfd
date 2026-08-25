@@ -62,3 +62,7 @@ To cut a release:
 4. Bump `version` in the workspace `Cargo.toml` (`[workspace.package]`) to
    match the tag before the *next* release, so the version-check has
    something to compare against.
+
+## License
+
+MIT — see `LICENSE`.

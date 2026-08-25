@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use rekon_geometry::{AxisMapping, Mesh, Panel, Unit, VoxelGrid};
@@ -40,6 +40,11 @@ pub struct AppState {
     /// this shared counter, so a new request cleanly supersedes whatever
     /// solve (if any) was already running, rather than racing it.
     pub solve_generation: Arc<AtomicU64>,
+    /// Guards `POST /api/update/apply` against a second overlapping call --
+    /// `self_update`'s download+rename-swap isn't safe to run twice at once
+    /// (both invocations would race on the same temp download path and the
+    /// same rename target). See `http::apply_update`.
+    pub update_in_progress: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -49,6 +54,7 @@ impl AppState {
             current_mesh,
             next_mesh_id: Arc::new(AtomicU64::new(1)),
             solve_generation: Arc::new(AtomicU64::new(0)),
+            update_in_progress: Arc::new(AtomicBool::new(false)),
         }
     }
 

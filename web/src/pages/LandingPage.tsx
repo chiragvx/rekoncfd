@@ -98,12 +98,12 @@ const SETUP_STEPS = [
   {
     icon: Download,
     title: "Download",
-    body: "Grab the standalone app for Windows or macOS, or skip straight to the hosted preview in your browser — no account required.",
+    body: "Grab the standalone app for Windows or macOS, or skip straight to the hosted preview in your browser.",
   },
   {
     icon: MonitorPlay,
     title: "Launch",
-    body: "No installer, no admin rights. It opens straight into your own browser at 127.0.0.1 and stays there.",
+    body: "No installer, no admin rights. It opens straight into your own browser at 127.0.0.1, then a quick free sign-in — same account either way — and it stays there.",
   },
   {
     icon: Sparkles,

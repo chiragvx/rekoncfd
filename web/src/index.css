@@ -164,6 +164,27 @@
       0 0 0 1px hsl(var(--primary) / 0.12);
   }
 
+  /* Plain-prose sections for the Privacy Policy / Terms pages -- no
+   * typography plugin in this project, and these two pages are the only
+   * place hand-written long-form text like this appears, so a few scoped
+   * rules here are simpler than pulling one in for two pages. */
+  .legal-prose h2 {
+    @apply text-foreground text-xl font-medium tracking-tight;
+  }
+  .legal-prose p,
+  .legal-prose li {
+    @apply text-muted-foreground text-sm leading-relaxed;
+  }
+  .legal-prose ul {
+    @apply mt-2 flex list-disc flex-col gap-1.5 pl-5;
+  }
+  .legal-prose section {
+    @apply flex flex-col gap-2;
+  }
+  .legal-prose a {
+    @apply text-primary underline-offset-4 hover:underline;
+  }
+
   /* A thin "blueprint"-style divider (a tick-marked rule, like a dimension
    * line on an engineering drawing) used between landing-page sections
    * instead of a plain border -- a recurring, quiet nod to the instrument/

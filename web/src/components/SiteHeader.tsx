@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { RekonMark } from "@/components/RekonMark";
+import { RekonLogo } from "@/components/RekonLogo";
 
 const NAV_LINKS = [
   { to: "/explore", label: "Explore Models" },
@@ -17,9 +17,8 @@ export function SiteHeader() {
   return (
     <header className="border-border/60 bg-background/75 sticky top-0 z-20 border-b backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <NavLink to="/" className="font-display flex items-center gap-2.5 text-[1.05rem] font-medium tracking-tight">
-          <RekonMark className="text-primary size-5" />
-          Rekon
+        <NavLink to="/" aria-label="Rekon home">
+          <RekonLogo className="text-foreground h-5 w-auto" />
         </NavLink>
 
         <nav className="flex items-center gap-1">
