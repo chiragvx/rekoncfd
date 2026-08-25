@@ -16,7 +16,7 @@ export function PrivacyPage() {
         <ul>
           <li>A free account (email or GitHub sign-in) is currently required to use the tool.</li>
           <li>The desktop app solves everything locally on your machine; your wing geometry is never uploaded anywhere unless you explicitly save a project.</li>
-          <li>Rekon runs no advertising trackers and no third-party analytics.</li>
+          <li>Rekon runs no advertising trackers. The only analytics is Vercel's privacy-friendly, cookieless page-view counter (see below) — no cross-site tracking, no ad networks.</li>
           <li>You can delete your saved projects yourself at any time (see "Your controls" below).</li>
         </ul>
       </section>
@@ -64,6 +64,11 @@ export function PrivacyPage() {
           track you across other sites.
         </p>
         <p>
+          Page views are counted by Vercel Analytics, which doesn't use cookies and doesn't build a profile of you
+          across sites — it reports aggregate traffic (which pages, how many visits) rather than identifying
+          individual visitors.
+        </p>
+        <p>
           This page's fonts are loaded from Google Fonts, which — like any web font CDN — receives your IP address
           and browser details as part of that request, under Google's own privacy policy.
         </p>
@@ -73,7 +78,7 @@ export function PrivacyPage() {
         <h2>Who else sees your data</h2>
         <ul>
           <li><strong className="text-foreground">Supabase</strong> — hosts authentication, the project database, and stored files, if you sign in.</li>
-          <li><strong className="text-foreground">Vercel</strong> — hosts the web page itself.</li>
+          <li><strong className="text-foreground">Vercel</strong> — hosts the web page itself and provides its cookieless page-view analytics.</li>
           <li><strong className="text-foreground">GitHub</strong> — provides GitHub sign-in (if you use it) and hosts the app's release downloads and public source code.</li>
         </ul>
         <p>We don't sell your data, and we don't share it with anyone else for advertising purposes.</p>
