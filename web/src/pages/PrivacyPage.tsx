@@ -43,6 +43,13 @@ export function PrivacyPage() {
           only by you (enforced by database-level row security policies, not just application code).
         </p>
         <p>
+          Separately from project storage, we also keep a basic record of your sign-up itself — email, name/avatar if
+          you signed in with GitHub, and when you signed up and last signed in — so we have a way to reach current
+          account holders about product updates or account-affecting changes, and so we're not entirely dependent on
+          browsing Supabase's own auth records to know who's using Rekon. It's deleted automatically if your account
+          is deleted.
+        </p>
+        <p>
           <strong className="text-foreground">If you sign up for update emails:</strong> just the email address you
           give us, used solely to send occasional product updates. Never sold or shared, and you can unsubscribe at
           any time.
